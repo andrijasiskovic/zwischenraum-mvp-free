@@ -1,0 +1,14 @@
+{
+  "name": "zwischenraum-mvp-free",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Kostenarmes Zwischenraum MVP mit statischem Frontend und Supabase Backend.",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "check": "node --check public/app.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
