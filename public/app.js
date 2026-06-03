@@ -747,15 +747,15 @@ function renderView() {
 function renderDashboard() {
   const data = metrics();
   return `
-    <section class="grid metrics">
+    <section class="grid metrics metric-strip">
       ${metricCard("Offen", data.open)}
-      ${metricCard("Erledigt", data.done)}
       ${metricCard("Überfällig", data.overdue)}
+      ${metricCard("Erledigt", data.done)}
       ${metricCard("Umsetzung", `${data.rate}%`)}
     </section>
-    <section class="grid two" style="margin-top:16px">
+    <section class="grid two dashboard-grid">
       ${renderTasksPanel(false)}
-      <div class="panel">
+      <div class="panel dashboard-reflections">
         <div class="toolbar">
           <h2>Neueste Reflexionen</h2>
         </div>
@@ -789,7 +789,7 @@ function renderTasksPanel(withForm) {
     return `
       <section class="task-compose-layout">
         ${renderTaskForm()}
-        <section class="panel">
+        <section class="panel task-panel">
           <div class="toolbar">
             <h2>Aufgaben</h2>
             <div class="segmented">
@@ -808,7 +808,7 @@ function renderTasksPanel(withForm) {
   }
 
   return `
-    <section class="panel">
+    <section class="panel task-panel">
       <div class="toolbar">
         <h2>Aufgaben</h2>
         <div class="segmented">
@@ -846,8 +846,8 @@ function renderTask(task) {
         </div>
         <span class="chip ${statusClass}">${escapeHtml(status)}</span>
       </header>
-      <p>${escapeHtml(task.description || "Keine Beschreibung")}</p>
-      <div class="chips">
+      <p class="task-description">${escapeHtml(task.description || "Keine Beschreibung")}</p>
+      <div class="task-meta chips">
         <span class="chip">Fällig ${formatDate(task.due_date)}</span>
         ${task.reflections?.length ? `<span class="chip done">Reflexion vorhanden</span>` : ""}
       </div>
@@ -960,12 +960,15 @@ function refreshClientPicker(options = {}) {
 
 function renderReflection(reflection) {
   return `
-    <article class="task-row">
-      <strong>${escapeHtml(reflection.tasks?.title || "Reflexion")}</strong>
-      <p>${escapeHtml(reflection.text)}</p>
-      <div class="chips">
-        <span class="chip">${escapeHtml(personName(reflection.client, "Client"))}</span>
-        ${reflection.mood ? `<span class="chip">${escapeHtml(reflection.mood)}</span>` : ""}
+    <article class="reflection-row">
+      <div class="reflection-dot"></div>
+      <div>
+        <div class="reflection-head">
+          <strong>${escapeHtml(reflection.tasks?.title || "Reflexion")}</strong>
+          ${reflection.mood ? `<span class="chip">${escapeHtml(reflection.mood)}</span>` : ""}
+        </div>
+        <p>${escapeHtml(reflection.text)}</p>
+        <small class="muted">${escapeHtml(personName(reflection.client, "Client"))}</small>
       </div>
     </article>
   `;
