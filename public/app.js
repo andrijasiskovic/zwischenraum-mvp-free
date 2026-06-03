@@ -40,6 +40,7 @@ const state = {
   selectedTaskClientIds: [],
   clientSearch: "",
   clientPickerOpen: false,
+  mobileMenuOpen: false,
 };
 
 function inviteParams() {
@@ -147,6 +148,7 @@ function resetNavigationState() {
   state.selectedTaskClientIds = [];
   state.clientSearch = "";
   state.clientPickerOpen = false;
+  state.mobileMenuOpen = false;
 }
 
 function activeBrandSettings(presetId = state.organization?.industry_preset_id) {
@@ -618,7 +620,9 @@ function renderAppShellError() {
 function renderApp() {
   const role = currentRole();
   app.innerHTML = `
-    <div class="app-shell">
+    <div class="app-shell ${state.mobileMenuOpen ? "menu-open" : ""}">
+      ${renderMobileHeader()}
+      <button class="menu-backdrop" data-close-menu aria-label="Menü schließen"></button>
       ${renderSidebar(role)}
       <main class="content">
         ${renderTopbar(role)}
@@ -630,6 +634,29 @@ function renderApp() {
       ${state.inviteModalId ? renderInviteModal() : ""}
       ${state.reminderModalClientId ? renderReminderModal() : ""}
     </div>
+  `;
+}
+
+function renderMobileHeader() {
+  const brand = activeBrandSettings();
+  const logo = brand.logo_text;
+  const logoUrl = brand.logo_url;
+
+  return `
+    <header class="mobile-header">
+      <div class="brand compact">
+        <div class="mark">${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="" />` : escapeHtml(logo)}</div>
+        <div>
+          <strong>${escapeHtml(brand.display_name)}</strong>
+          <small>${escapeHtml(navTitle())}</small>
+        </div>
+      </div>
+      <button class="icon-btn menu-toggle" data-toggle-menu aria-label="Menü öffnen" aria-expanded="${state.mobileMenuOpen ? "true" : "false"}">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </header>
   `;
 }
 
@@ -650,12 +677,15 @@ function renderSidebar(role) {
 
   return `
     <aside class="sidebar">
-      <div class="brand">
-        <div class="mark">${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="" />` : escapeHtml(logo)}</div>
-        <div>
-          <strong>${escapeHtml(name)}</strong>
-          <small>${escapeHtml(state.preset?.label || "MVP")}</small>
+      <div class="sidebar-head">
+        <div class="brand">
+          <div class="mark">${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="" />` : escapeHtml(logo)}</div>
+          <div>
+            <strong>${escapeHtml(name)}</strong>
+            <small>${escapeHtml(state.preset?.label || "MVP")}</small>
+          </div>
         </div>
+        <button class="icon-btn sidebar-close" data-close-menu aria-label="Menü schließen">×</button>
       </div>
       <nav class="nav">
         ${navItems
@@ -2217,8 +2247,21 @@ app.addEventListener("click", async (event) => {
   const target = event.target.closest("button");
   if (!target) return;
 
+  if (target.hasAttribute("data-toggle-menu")) {
+    state.mobileMenuOpen = !state.mobileMenuOpen;
+    renderApp();
+    return;
+  }
+
+  if (target.hasAttribute("data-close-menu")) {
+    state.mobileMenuOpen = false;
+    renderApp();
+    return;
+  }
+
   if (target.dataset.view) {
     state.view = target.dataset.view;
+    state.mobileMenuOpen = false;
     renderApp();
   }
 

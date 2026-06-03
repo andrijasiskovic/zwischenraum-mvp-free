@@ -217,6 +217,11 @@ select:focus {
   grid-template-columns: 280px 1fr;
 }
 
+.mobile-header,
+.menu-backdrop {
+  display: none;
+}
+
 .sidebar {
   position: sticky;
   top: 0;
@@ -230,18 +235,68 @@ select:focus {
   gap: 20px;
 }
 
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .brand {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .brand strong {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .brand small {
+  display: block;
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brand.compact .mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  box-shadow: none;
+}
+
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  background: rgba(238, 234, 225, 0.95);
+  color: var(--ink);
+  font-size: 1.45rem;
+  font-weight: 800;
+}
+
+.menu-toggle {
+  gap: 4px;
+}
+
+.menu-toggle span {
+  width: 19px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.sidebar-close {
+  display: none;
 }
 
 .nav {
@@ -762,14 +817,81 @@ select:focus {
 
 @media (max-width: 980px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    display: block;
+    padding-top: 74px;
+  }
+
+  .mobile-header {
+    position: fixed;
+    z-index: 40;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 74px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid rgba(223, 221, 213, 0.78);
+    background: rgba(246, 244, 239, 0.86);
+    backdrop-filter: blur(18px);
   }
 
   .sidebar {
-    position: static;
-    height: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+    position: fixed;
+    z-index: 60;
+    inset: 0 auto 0 0;
+    width: min(86vw, 340px);
+    height: 100vh;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    transform: translateX(-105%);
+    transition: transform 180ms ease;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 18px 0 42px rgba(24, 33, 31, 0.18);
+    overflow-y: auto;
+  }
+
+  .menu-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .menu-backdrop {
+    position: fixed;
+    z-index: 50;
+    inset: 0;
+    width: 100%;
+    min-height: 100%;
+    border-radius: 0;
+    background: rgba(24, 33, 31, 0.38);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+  }
+
+  .menu-open .menu-backdrop {
+    display: block;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .sidebar-close {
+    display: inline-grid;
+  }
+
+  .nav {
+    gap: 10px;
+  }
+
+  .nav button {
+    min-height: 48px;
+    border-radius: 14px;
+    font-size: 1rem;
+  }
+
+  .content {
+    padding: 18px;
   }
 
   .grid.metrics,
@@ -782,10 +904,39 @@ select:focus {
 
 @media (max-width: 640px) {
   .content {
-    padding: 18px;
+    padding: 12px;
   }
 
-  .topbar,
+  .topbar {
+    min-height: 150px;
+    border-radius: 18px;
+    padding: 18px;
+    margin-bottom: 14px;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .topbar h1 {
+    font-size: 2.15rem;
+  }
+
+  .topbar .btn {
+    align-self: flex-start;
+  }
+
+  .panel,
+  .empty-card,
+  .task-row,
+  .client-row,
+  .modal-card {
+    border-radius: 16px;
+  }
+
+  .panel,
+  .empty-card {
+    padding: 15px;
+  }
+
   .toolbar,
   .task-row header,
   .client-row {
