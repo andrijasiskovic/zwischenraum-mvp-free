@@ -204,6 +204,18 @@ select:focus {
   width: 100%;
 }
 
+.btn.small {
+  min-height: 32px;
+  border-radius: 10px;
+  padding: 0 10px;
+  font-size: 0.84rem;
+}
+
+.btn.subtle-danger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger), white 90%);
+}
+
 .btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -553,6 +565,100 @@ select:focus {
   align-items: start;
 }
 
+.client-directory-panel {
+  padding: 16px;
+}
+
+.client-directory-head {
+  margin-bottom: 10px;
+}
+
+.client-directory-head p {
+  margin: 3px 0 0;
+  font-size: 0.9rem;
+}
+
+.client-directory-search {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.client-directory-search span {
+  color: #34413c;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.client-directory-search input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 0 13px;
+  background: #fffefa;
+  color: var(--ink);
+}
+
+.compact-directory {
+  gap: 7px;
+}
+
+.compact-client-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
+  padding: 11px 12px;
+}
+
+.client-identity {
+  min-width: 0;
+}
+
+.client-identity strong,
+.client-identity p {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-identity p {
+  margin: 2px 0 0;
+  font-size: 0.88rem;
+}
+
+.client-row-meta,
+.client-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.mini-stat {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: #eeeae1;
+  color: #4b5551;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.mini-stat.done {
+  background: color-mix(in srgb, var(--good), white 84%);
+  color: color-mix(in srgb, var(--good), black 28%);
+}
+
+.mini-stat.overdue {
+  background: color-mix(in srgb, var(--warn), white 84%);
+  color: color-mix(in srgb, var(--warn), black 28%);
+}
+
 .invite-delivery {
   display: grid;
   gap: 16px;
@@ -603,20 +709,22 @@ select:focus {
 }
 
 .open-invites-panel.compact {
-  padding: 14px;
-  box-shadow: 0 4px 16px rgba(24, 33, 31, 0.05);
+  padding: 10px;
+  box-shadow: 0 2px 10px rgba(24, 33, 31, 0.04);
+  opacity: 0.92;
 }
 
 .open-invites-panel.compact .toolbar {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .open-invites-panel.compact h2 {
-  font-size: 1rem;
+  font-size: 0.9rem;
 }
 
 .open-invites-panel.compact .open-invite-list {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px;
 }
 
 .open-invite-row {
@@ -631,13 +739,17 @@ select:focus {
 }
 
 .open-invites-panel.compact .open-invite-row {
-  min-height: 38px;
-  border-radius: 10px;
-  padding: 0 10px;
-  font-size: 0.86rem;
+  min-height: 30px;
+  border-radius: 9px;
+  padding: 0 8px;
+  font-size: 0.76rem;
 }
 
 .open-invite-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 760;
 }
 
@@ -649,8 +761,8 @@ select:focus {
 }
 
 .open-invites-panel.compact .open-invite-row code {
-  padding: 4px 7px;
-  font-size: 0.78rem;
+  padding: 3px 6px;
+  font-size: 0.7rem;
 }
 
 .template-row {
@@ -1079,6 +1191,75 @@ select:focus {
   .reminder-row {
     padding: 12px;
     gap: 8px;
+  }
+
+  .client-directory-panel {
+    padding: 11px;
+  }
+
+  .client-directory-head {
+    margin-bottom: 8px;
+  }
+
+  .client-directory-search {
+    margin-bottom: 8px;
+  }
+
+  .client-directory-search input {
+    min-height: 40px;
+    border-radius: 12px;
+    font-size: 0.92rem;
+  }
+
+  .compact-directory {
+    gap: 6px;
+  }
+
+  .compact-client-row {
+    padding: 9px 10px;
+    border-radius: 13px;
+    gap: 7px;
+  }
+
+  .client-identity strong {
+    font-size: 0.95rem;
+  }
+
+  .client-identity p {
+    font-size: 0.78rem;
+  }
+
+  .client-row-meta {
+    gap: 4px;
+  }
+
+  .client-row-actions {
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .mini-stat {
+    min-height: 20px;
+    padding: 0 7px;
+    font-size: 0.66rem;
+  }
+
+  .btn.small {
+    min-height: 30px;
+    padding: 0 9px;
+    font-size: 0.78rem;
+  }
+
+  .open-invites-panel.compact {
+    padding: 8px;
+  }
+
+  .open-invites-panel.compact .open-invite-list {
+    grid-template-columns: 1fr;
+  }
+
+  .open-invites-panel.compact .open-invite-row {
+    min-height: 28px;
   }
 
   .task-row header {

@@ -41,6 +41,7 @@ const state = {
   clientSearch: "",
   clientPickerOpen: false,
   mobileMenuOpen: false,
+  clientDirectorySearch: "",
 };
 
 function inviteParams() {
@@ -149,6 +150,7 @@ function resetNavigationState() {
   state.clientSearch = "";
   state.clientPickerOpen = false;
   state.mobileMenuOpen = false;
+  state.clientDirectorySearch = "";
 }
 
 function activeBrandSettings(presetId = state.organization?.industry_preset_id) {
@@ -981,39 +983,81 @@ function renderClients() {
     <section class="stack">
       <div class="grid two client-management-grid">
         ${renderInviteForm()}
-        <section class="panel">
-          <div class="toolbar">
-            <h2>${escapeHtml(state.preset?.client_label || "Clients")}</h2>
-          </div>
-          <div class="client-list">
-            ${
-              state.clients.length
-                ? state.clients.map((item) => {
-                    const tasks = state.tasks.filter((task) => task.client_id === item.client_id);
-                    const done = tasks.filter((task) => task.status === "done").length;
-                    return `
-                      <article class="client-row">
-                        <div>
-                          <strong>${escapeHtml(personName(item.client, "Client"))}</strong>
-                          <p class="muted">${escapeHtml(personEmail(item.client))}</p>
-                        </div>
-                        <div class="chips">
-                          <span class="chip">${tasks.length} Aufgaben</span>
-                          <span class="chip done">${done} erledigt</span>
-                          <button class="btn" data-client-profile="${item.client_id}">Profil öffnen</button>
-                          <button class="btn danger" data-remove-client="${item.client_id}" data-client-name="${escapeHtml(personName(item.client, "Client"))}">Entfernen</button>
-                        </div>
-                      </article>
-                    `;
-                  }).join("")
-                : `<p class="muted">Noch keine Clients verbunden.</p>`
-            }
-          </div>
-        </section>
+        ${renderClientDirectory()}
       </div>
       ${renderOpenInvites(openInvites, true)}
     </section>
   `;
+}
+
+function renderClientDirectory() {
+  const clientLabel = state.preset?.client_label || "Clients";
+  const query = state.clientDirectorySearch.trim().toLowerCase();
+  const rows = state.clients
+    .map((item) => {
+      const tasks = state.tasks.filter((task) => task.client_id === item.client_id);
+      const open = tasks.filter((task) => task.status === "open" && !isOverdue(task)).length;
+      const overdue = tasks.filter(isOverdue).length;
+      const done = tasks.filter((task) => task.status === "done").length;
+      const name = personName(item.client, "Client");
+      const email = personEmail(item.client);
+      return { ...item, tasks, open, overdue, done, name, email };
+    })
+    .filter((item) => {
+      if (!query) return true;
+      return `${item.name} ${item.email}`.toLowerCase().includes(query);
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "de"));
+
+  return `
+    <section class="panel client-directory-panel" data-client-directory>
+      <div class="toolbar client-directory-head">
+        <div>
+          <h2>${escapeHtml(clientLabel)}</h2>
+          <p class="muted">${state.clients.length} verbunden${query ? ` · ${rows.length} Treffer` : ""}</p>
+        </div>
+      </div>
+      <label class="client-directory-search">
+        <span>Suchen</span>
+        <input data-client-directory-search value="${escapeHtml(state.clientDirectorySearch)}" placeholder="Name oder E-Mail" />
+      </label>
+      <div class="client-list compact-directory">
+        ${
+          rows.length
+            ? rows.map((item) => `
+              <article class="client-row compact-client-row">
+                <div class="client-identity">
+                  <strong>${escapeHtml(item.name)}</strong>
+                  <p class="muted">${escapeHtml(item.email)}</p>
+                </div>
+                <div class="client-row-meta">
+                  <span class="mini-stat">${item.tasks.length} gesamt</span>
+                  <span class="mini-stat">${item.open} offen</span>
+                  ${item.overdue ? `<span class="mini-stat overdue">${item.overdue} überfällig</span>` : ""}
+                  <span class="mini-stat done">${item.done} erledigt</span>
+                </div>
+                <div class="client-row-actions">
+                  <button class="btn small" data-client-profile="${item.client_id}">Profil</button>
+                  <button class="btn small danger subtle-danger" data-remove-client="${item.client_id}" data-client-name="${escapeHtml(item.name)}">Entfernen</button>
+                </div>
+              </article>
+            `).join("")
+            : `<p class="muted">Keine passenden Personen gefunden.</p>`
+        }
+      </div>
+    </section>
+  `;
+}
+
+function refreshClientDirectory() {
+  const directory = document.querySelector("[data-client-directory]");
+  if (!directory) return;
+  directory.outerHTML = renderClientDirectory();
+  const input = document.querySelector("[data-client-directory-search]");
+  if (input) {
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
 }
 
 function renderMyProfile() {
@@ -2192,6 +2236,13 @@ app.addEventListener("input", (event) => {
         // Keep typing smooth; submit still shows a precise validation error.
       }
     }, 350);
+    return;
+  }
+
+  const directoryInput = event.target.closest("[data-client-directory-search]");
+  if (directoryInput) {
+    state.clientDirectorySearch = directoryInput.value;
+    refreshClientDirectory();
     return;
   }
 
