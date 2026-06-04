@@ -169,10 +169,41 @@ function activeBrandSettings(presetId = state.organization?.industry_preset_id) 
     display_name: displayName || organizationName || "Zwischenraum",
     logo_text: brand.logo_text || state.settings?.logo_text || "ZR",
     logo_url: brand.logo_url || state.settings?.logo_url || "",
-    hero_image_url: brand.hero_image_url || state.settings?.hero_image_url || preset.default_image_url || "",
+    hero_image_url: resolveHeroImageUrl(presetId, brand, preset),
     primary_color: brand.primary_color || state.settings?.primary_color || preset.accent_color || "#5B7C99",
     secondary_color: brand.secondary_color || state.settings?.secondary_color || preset.support_color || "#7FAEA3",
   };
+}
+
+function presetDefaultImageOwner(url = "") {
+  return state.presets.find((preset) => preset.default_image_url && preset.default_image_url === url)?.id || "";
+}
+
+function isCrossPresetDefaultImage(url = "", presetId = "") {
+  const owner = presetDefaultImageOwner(url);
+  return Boolean(owner && owner !== presetId);
+}
+
+function customHeroImageForPreset(presetId = state.organization?.industry_preset_id) {
+  const profiles = state.settings?.brand_profiles || {};
+  const brand = profiles[presetId] || {};
+  const rawHero = String(brand.hero_image_url || "").trim();
+  if (!rawHero || presetDefaultImageOwner(rawHero)) return "";
+  return rawHero;
+}
+
+function resolveHeroImageUrl(presetId, brand, preset) {
+  const brandHero = String(brand?.hero_image_url || "").trim();
+  if (brandHero && !isCrossPresetDefaultImage(brandHero, presetId)) {
+    return brandHero;
+  }
+
+  const legacyHero = String(state.settings?.hero_image_url || "").trim();
+  if (legacyHero && !isCrossPresetDefaultImage(legacyHero, presetId)) {
+    return legacyHero;
+  }
+
+  return preset?.default_image_url || "";
 }
 
 function setTheme() {
@@ -1394,6 +1425,7 @@ function renderOpenInvites(openInvites, compact = false) {
 
 function renderSettings() {
   const brand = activeBrandSettings();
+  const customHeroImage = customHeroImageForPreset(state.organization.industry_preset_id);
   return `
     <section class="grid two">
       <form class="panel form-grid" data-action="save-settings">
@@ -1440,7 +1472,7 @@ function renderSettings() {
           <input name="hero_file" type="file" accept="image/png,image/jpeg,image/webp" />
         </label>
         ${
-          brand.hero_image_url && brand.hero_image_url !== state.preset?.default_image_url
+          customHeroImage
             ? `<label class="checkline">
                 <input name="remove_hero_image" type="checkbox" value="true" />
                 <span>Eigenes Bild entfernen und Branchenbild anzeigen</span>
@@ -2051,7 +2083,7 @@ async function saveSettings(values) {
   const presetId = values.preset || state.organization.industry_preset_id;
   let logoUrl = values.logo_url || "";
   const logoFile = values.logo_file;
-  let heroImageUrl = activeBrandSettings(presetId).hero_image_url || "";
+  let heroImageUrl = customHeroImageForPreset(presetId);
   const heroFile = values.hero_file;
 
   if (values.remove_logo === "true") {
