@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Zwischenraum App Icon">
+  <defs>
+    <linearGradient id="bg" x1="96" y1="64" x2="432" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6F8F8A"/>
+      <stop offset="0.52" stop-color="#5B7C99"/>
+      <stop offset="1" stop-color="#7FAEA3"/>
+    </linearGradient>
+    <linearGradient id="path" x1="128" y1="144" x2="384" y2="384" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F6F4EF"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <circle cx="168" cy="182" r="42" fill="#F6F4EF" opacity="0.96"/>
+  <circle cx="344" cy="330" r="42" fill="#F6F4EF" opacity="0.96"/>
+  <path d="M170 224c18 54 58 83 110 101 22 8 42 17 62 31" fill="none" stroke="url(#path)" stroke-width="44" stroke-linecap="round"/>
+  <path d="M174 330c58-40 112-72 168-148" fill="none" stroke="#F6F4EF" stroke-width="30" stroke-linecap="round" opacity="0.46"/>
+  <path d="M149 164c24-32 58-52 100-59 49-9 89 2 123 27" fill="none" stroke="#F6F4EF" stroke-width="20" stroke-linecap="round" opacity="0.24"/>
+</svg>
