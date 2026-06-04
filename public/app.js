@@ -176,12 +176,26 @@ function activeBrandSettings(presetId = state.organization?.industry_preset_id) 
 }
 
 function presetDefaultImageOwner(url = "") {
-  return state.presets.find((preset) => preset.default_image_url && preset.default_image_url === url)?.id || "";
+  const identity = imageUrlIdentity(url);
+  if (!identity) return "";
+  return (
+    state.presets.find((preset) => preset.default_image_url && imageUrlIdentity(preset.default_image_url) === identity)?.id || ""
+  );
 }
 
-function isCrossPresetDefaultImage(url = "", presetId = "") {
-  const owner = presetDefaultImageOwner(url);
-  return Boolean(owner && owner !== presetId);
+function imageUrlIdentity(url = "") {
+  const rawUrl = String(url || "").trim();
+  if (!rawUrl) return "";
+
+  try {
+    const parsed = new URL(rawUrl, window.location.href);
+    if (parsed.hostname === "images.unsplash.com") {
+      return `${parsed.origin}${parsed.pathname}`.toLowerCase();
+    }
+    return parsed.href.toLowerCase();
+  } catch (_error) {
+    return rawUrl.toLowerCase();
+  }
 }
 
 function customHeroImageForPreset(presetId = state.organization?.industry_preset_id) {
@@ -194,12 +208,12 @@ function customHeroImageForPreset(presetId = state.organization?.industry_preset
 
 function resolveHeroImageUrl(presetId, brand, preset) {
   const brandHero = String(brand?.hero_image_url || "").trim();
-  if (brandHero && !isCrossPresetDefaultImage(brandHero, presetId)) {
+  if (brandHero && !presetDefaultImageOwner(brandHero)) {
     return brandHero;
   }
 
   const legacyHero = String(state.settings?.hero_image_url || "").trim();
-  if (legacyHero && !isCrossPresetDefaultImage(legacyHero, presetId)) {
+  if (legacyHero && !presetDefaultImageOwner(legacyHero)) {
     return legacyHero;
   }
 
