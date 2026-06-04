@@ -1,4 +1,4 @@
-const CACHE_NAME = "zwischenraum-pwa-v1";
+const CACHE_NAME = "zwischenraum-pwa-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -7,7 +7,6 @@ const APP_SHELL = [
   "./supabase-config.js",
   "./manifest.webmanifest",
   "./pwa.js",
-  "./icons/icon.svg",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/icon-maskable-512.png",
