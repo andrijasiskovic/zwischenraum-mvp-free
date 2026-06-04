@@ -379,7 +379,7 @@ function renderMissingConfig() {
     <main class="auth-shell">
       <section class="auth-card stack">
         <div class="brand">
-          <div class="mark">ZR</div>
+          <div class="mark"><img src="./icons/icon-192.png" alt="" /></div>
           <div>
             <strong>Zwischenraum MVP</strong>
             <small>Supabase noch nicht verbunden</small>
@@ -404,7 +404,7 @@ function renderAuth() {
     <main class="auth-shell">
       <section class="auth-card stack">
         <div class="brand">
-          <div class="mark">ZR</div>
+          <div class="mark"><img src="./icons/icon-192.png" alt="" /></div>
           <div>
             <strong>Zwischenraum</strong>
             <small>Begleitung zwischen Terminen</small>
@@ -440,7 +440,7 @@ function renderInviteRegistration(invite) {
     <main class="auth-shell">
       <section class="auth-card stack">
         <div class="brand">
-          <div class="mark">ZR</div>
+          <div class="mark"><img src="./icons/icon-192.png" alt="" /></div>
           <div>
             <strong>Einladung annehmen</strong>
             <small>Zwischenraum</small>
@@ -508,7 +508,7 @@ function renderInviteSessionGate(invite) {
     <main class="auth-shell">
       <section class="auth-card stack">
         <div class="brand">
-          <div class="mark">ZR</div>
+          <div class="mark"><img src="./icons/icon-192.png" alt="" /></div>
           <div>
             <strong>Einladung öffnen</strong>
             <small>${escapeHtml(currentEmail)}</small>
@@ -542,7 +542,7 @@ function renderWorkspaceStart() {
     <main class="auth-shell">
       <section class="auth-card stack">
         <div class="brand">
-          <div class="mark">ZR</div>
+          <div class="mark"><img src="./icons/icon-192.png" alt="" /></div>
           <div>
             <strong>${setup ? "Workspace einrichten" : "Einladung erforderlich"}</strong>
             <small>${escapeHtml(state.profile?.email || "")}</small>
@@ -578,7 +578,7 @@ function renderProfileCompletion() {
     <main class="auth-shell">
       <section class="auth-card stack">
         <div class="brand">
-          <div class="mark">ZR</div>
+          <div class="mark"><img src="./icons/icon-192.png" alt="" /></div>
           <div>
             <strong>Profil ergänzen</strong>
             <small>${escapeHtml(state.profile?.email || "")}</small>
