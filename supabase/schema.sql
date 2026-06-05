@@ -683,6 +683,7 @@ declare
   active_client_count integer := 0;
   pending_client_invite_count integer := 0;
   current_client_limit integer := 10;
+  target_coach_id uuid;
 begin
   if not public.has_org_role(org_id, array['owner','coach']::public.member_role[]) then
     raise exception 'Not allowed';
@@ -693,6 +694,8 @@ begin
   end if;
 
   if invite_role = 'client' then
+    target_coach_id := coalesce(client_coach, auth.uid());
+
     select coalesce(client_limit, 10) into current_client_limit
     from public.organization_settings
     where organization_id = org_id;
@@ -700,12 +703,14 @@ begin
     select count(distinct client_id) into active_client_count
     from public.coach_client_relationships
     where organization_id = org_id
+      and coach_id = target_coach_id
       and active = true;
 
     select count(*) into pending_client_invite_count
     from public.invitations
     where organization_id = org_id
       and role = 'client'
+      and coalesce(client_coach_id, invited_by) = target_coach_id
       and accepted_at is null;
 
     if current_client_limit > 0 and active_client_count + pending_client_invite_count >= current_client_limit then

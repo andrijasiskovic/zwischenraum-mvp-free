@@ -66,7 +66,7 @@ Beim Erstellen einer neuen Aufgabe kannst du ein Template auswählen. Titel und 
 3. Klicke auf `Code erstellen`.
 4. Wähle, wie du die Einladung versenden möchtest.
 
-Die Testphase ist auf 10 Client-Plätze pro Workspace begrenzt. Offene Einladungen zählen mit, weil sie bereits einen Platz reservieren.
+Die Testphase ist auf 10 Client-Plätze pro Coach begrenzt. Offene Einladungen zählen mit, weil sie bereits einen Platz reservieren.
 
 ## 7. Aufgabe erstellen
 

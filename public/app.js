@@ -627,6 +627,19 @@ async function loadMemberships() {
 
 async function loadWorkspaceData() {
   const orgId = state.organization.id;
+  const role = currentRole();
+  const relationshipQuery = state.supabase
+    .from("coach_client_relationships")
+    .select("*, client:profiles!coach_client_relationships_client_id_fkey(id, full_name, email, contact_email, phone)")
+    .eq("organization_id", orgId)
+    .eq("active", true);
+
+  if (role === "coach") {
+    relationshipQuery.eq("coach_id", state.session.user.id);
+  } else if (role === "client") {
+    relationshipQuery.eq("client_id", state.session.user.id);
+  }
+
   const [tasks, relationships, reflections, invitations, notes, templates, attachments] = await Promise.all([
     state.supabase
       .from("tasks")
@@ -635,11 +648,7 @@ async function loadWorkspaceData() {
       )
       .eq("organization_id", orgId)
       .order("due_date", { ascending: true }),
-    state.supabase
-      .from("coach_client_relationships")
-      .select("*, client:profiles!coach_client_relationships_client_id_fkey(id, full_name, email, contact_email, phone)")
-      .eq("organization_id", orgId)
-      .eq("active", true),
+    relationshipQuery,
     state.supabase
       .from("reflections")
       .select("*, tasks(title), client:profiles!reflections_client_id_fkey(full_name, email, contact_email, phone)")
@@ -1586,9 +1595,16 @@ function renderInvites() {
 }
 
 function renderInviteForm() {
-  const openClientInvites = state.invitations.filter((invite) => !invite.accepted_at && invite.role === "client").length;
+  const userId = state.session.user.id;
+  const openClientInvites = state.invitations.filter(
+    (invite) =>
+      !invite.accepted_at &&
+      invite.role === "client" &&
+      (invite.client_coach_id || invite.invited_by) === userId,
+  ).length;
   const clientLimit = Number(state.settings?.client_limit || 10);
-  const usedClientSlots = state.clients.length + openClientInvites;
+  const activeClientSlots = state.clients.filter((relationship) => relationship.coach_id === userId).length;
+  const usedClientSlots = activeClientSlots + openClientInvites;
   const clientLimitReached = clientLimit > 0 && usedClientSlots >= clientLimit;
   return `
     <form class="panel form-grid invite-flow" data-action="create-invite">

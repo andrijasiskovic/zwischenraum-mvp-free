@@ -9,7 +9,7 @@
   });
 
   window.addEventListener("load", function onLoad() {
-    navigator.serviceWorker.register("./sw.js?v=20260605-testlimit").catch(function ignoreRegistrationError() {
+    navigator.serviceWorker.register("./sw.js?v=20260605-coachlimit").catch(function ignoreRegistrationError() {
       // The app still works as a normal website if service workers are unavailable.
     });
   });

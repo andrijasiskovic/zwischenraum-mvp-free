@@ -36,7 +36,7 @@ Für die Testphase sollte daher gelten:
 - Einladungslogik statt freier Selbstregistrierung
 - Mehrere Workspaces pro E-Mail-Adresse möglich
 - Coach-interne Notizen sind nicht für Clients sichtbar
-- Client-Limit pro Workspace für die Testphase
+- Client-Limit pro Coach für die Testphase
 
 ## Sofortmaßnahmen vor Testerstart
 
