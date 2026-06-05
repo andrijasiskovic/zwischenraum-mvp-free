@@ -813,6 +813,15 @@ select:focus {
   gap: 6px;
 }
 
+.delivery-card.preferred {
+  border-color: color-mix(in srgb, var(--primary), white 18%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--primary), white 86%),
+    color-mix(in srgb, var(--secondary), white 88%)
+  );
+}
+
 .delivery-card strong {
   font-size: 1.05rem;
 }
@@ -1103,10 +1112,14 @@ select:focus {
   place-items: center;
   padding: 20px;
   background: rgba(24, 33, 31, 0.38);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .modal-card {
   width: min(100%, 560px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
   border-radius: 20px;
   padding: 20px;
 }
@@ -1207,9 +1220,12 @@ select:focus {
 
   .grid.metrics,
   .grid.two,
-  .task-compose-layout,
-  .delivery-grid {
+  .task-compose-layout {
     grid-template-columns: 1fr;
+  }
+
+  .delivery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .grid.metrics {
@@ -1258,6 +1274,61 @@ select:focus {
   .panel,
   .empty-card {
     padding: 14px;
+  }
+
+  .modal {
+    align-items: start;
+    padding: 10px;
+  }
+
+  .modal-card {
+    max-height: calc(100dvh - 20px);
+    padding: 14px;
+  }
+
+  .modal-card.invite-delivery {
+    gap: 10px;
+  }
+
+  .invite-delivery .toolbar {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .invite-delivery .toolbar h2 {
+    font-size: 1.05rem;
+    line-height: 1.18;
+  }
+
+  .invite-delivery .toolbar p {
+    font-size: 0.78rem;
+    line-height: 1.25;
+  }
+
+  .invite-delivery .toolbar .btn {
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 0.8rem;
+  }
+
+  .delivery-grid {
+    gap: 8px;
+  }
+
+  .delivery-card {
+    min-height: 72px;
+    border-radius: 13px;
+    padding: 10px;
+    gap: 3px;
+  }
+
+  .delivery-card strong {
+    font-size: 0.92rem;
+  }
+
+  .delivery-card span {
+    font-size: 0.72rem;
+    line-height: 1.25;
   }
 
   .dashboard-grid {

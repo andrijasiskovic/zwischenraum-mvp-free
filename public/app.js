@@ -1584,6 +1584,14 @@ function renderInviteModal() {
           <button class="btn" data-action="close-invite-modal">Schließen</button>
         </div>
         <div class="delivery-grid">
+          <button class="delivery-card preferred" data-share-invite="${invite.id}">
+            <strong>Teilen</strong>
+            <span>Handy-Menü für Mail, WhatsApp oder andere Apps öffnen</span>
+          </button>
+          <button class="delivery-card" data-mail-invite="${invite.id}">
+            <strong>Mail-App</strong>
+            <span>Standard-Mailprogramm öffnen</span>
+          </button>
           ${deliveryButton("gmail", invite.id, "Gmail", "Entwurf in Gmail öffnen")}
           ${deliveryButton("outlook", invite.id, "Outlook", "Entwurf in Outlook Web öffnen")}
           ${deliveryButton("gmx", invite.id, "GMX", "Text kopieren und GMX öffnen")}
@@ -2207,6 +2215,26 @@ async function copyInvite(invite, silent = false) {
   }
 }
 
+async function shareInvite(invite) {
+  const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role);
+  const { subject, body } = inviteMessage(invite.email, invite.code, inviteUrl);
+  const text = `An: ${invite.email}\n\n${body}`;
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: subject,
+        text,
+      });
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
+  }
+
+  await copyInvite(invite);
+}
+
 function reminderMessage(row) {
   const taskLines = row.tasks
     .map((task) => {
@@ -2688,6 +2716,13 @@ app.addEventListener("click", async (event) => {
     const invite = state.invitations.find((item) => item.id === target.dataset.inviteId);
     if (invite) {
       openWebmail(target.dataset.webmail, invite);
+    }
+  }
+
+  if (target.dataset.shareInvite) {
+    const invite = state.invitations.find((item) => item.id === target.dataset.shareInvite);
+    if (invite) {
+      await shareInvite(invite);
     }
   }
 
