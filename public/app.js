@@ -114,6 +114,200 @@ const escapeHtml = (value = "") =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 
+function textToRichHtml(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const lines = text.split(/\r?\n/);
+  const html = [];
+  let listType = "";
+
+  const closeList = () => {
+    if (listType) {
+      html.push(`</${listType}>`);
+      listType = "";
+    }
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    const bullet = trimmed.match(/^[-*]\s+(.+)/);
+    const numbered = trimmed.match(/^\d+[.)]\s+(.+)/);
+
+    if (!trimmed) {
+      closeList();
+      return;
+    }
+
+    if (bullet || numbered) {
+      const nextListType = bullet ? "ul" : "ol";
+      if (listType !== nextListType) {
+        closeList();
+        listType = nextListType;
+        html.push(`<${listType}>`);
+      }
+      html.push(`<li>${escapeHtml(bullet?.[1] || numbered?.[1] || "")}</li>`);
+      return;
+    }
+
+    closeList();
+    html.push(`<p>${escapeHtml(trimmed).replaceAll("  ", " &nbsp;")}</p>`);
+  });
+
+  closeList();
+  return html.join("");
+}
+
+function looksLikeHtml(value = "") {
+  return /<\/?(p|br|ul|ol|li|strong|b|em|i|u|h[1-6]|a|span)\b/i.test(String(value || ""));
+}
+
+function sanitizeRichText(value = "") {
+  const rawValue = String(value || "").trim();
+  if (!rawValue) return "";
+  const source = looksLikeHtml(rawValue) ? rawValue : textToRichHtml(rawValue);
+  const template = document.createElement("template");
+  template.innerHTML = source;
+  const allowedTags = new Set(["P", "BR", "UL", "OL", "LI", "STRONG", "B", "EM", "I", "U", "H3", "H4", "A", "SPAN"]);
+  const allowedStyles = new Set(["color"]);
+
+  template.content.querySelectorAll("*").forEach((node) => {
+    if (!allowedTags.has(node.tagName)) {
+      node.replaceWith(...Array.from(node.childNodes));
+      return;
+    }
+
+    [...node.attributes].forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      if (node.tagName === "A" && name === "href") {
+        const href = attribute.value.trim();
+        if (/^(https?:|mailto:|tel:)/i.test(href)) {
+          node.setAttribute("target", "_blank");
+          node.setAttribute("rel", "noopener noreferrer");
+          return;
+        }
+      }
+      if (name === "style") {
+        const color = node.style.color;
+        node.removeAttribute("style");
+        if (color && allowedStyles.has("color")) node.style.color = color;
+        return;
+      }
+      node.removeAttribute(attribute.name);
+    });
+  });
+
+  return template.innerHTML.trim();
+}
+
+function richTextToHtml(value = "") {
+  return sanitizeRichText(value);
+}
+
+function richTextPlain(value = "") {
+  const template = document.createElement("template");
+  template.innerHTML = richTextToHtml(value);
+  return template.content.textContent?.trim() || "";
+}
+
+function richTextPreviewNeedsToggle(value = "") {
+  const html = richTextToHtml(value);
+  const plain = richTextPlain(html);
+  return plain.length > 180 || (html.match(/<(p|li|br|ul|ol|h3|h4)\b/gi) || []).length > 3;
+}
+
+function renderRichPreview(value = "", emptyText = "Keine Beschreibung", className = "") {
+  const html = richTextToHtml(value) || `<p>${escapeHtml(emptyText)}</p>`;
+  const canExpand = richTextPreviewNeedsToggle(value);
+  return `
+    <div class="rich-preview ${className} ${canExpand ? "can-expand" : ""}" data-rich-preview>
+      <div class="rich-preview-content">${html}</div>
+      ${
+        canExpand
+          ? `<button type="button" class="text-toggle" data-toggle-rich-preview>Mehr anzeigen</button>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function renderRichTextField(name, label, value = "", options = {}) {
+  const id = `rich-${name}-${Math.random().toString(36).slice(2)}`;
+  const html = richTextToHtml(value);
+  const required = options.required ? "required" : "";
+  const editorRequired = options.required ? `data-rich-required="true"` : "";
+  const placeholder = options.placeholder || "";
+  return `
+    <label class="field rich-field">
+      <span>${escapeHtml(label)}</span>
+      <input type="hidden" id="${id}" name="${escapeHtml(name)}" value="${escapeHtml(html)}" ${required} />
+      <div class="rich-editor-shell">
+        <div class="rich-toolbar" aria-label="Text formatieren">
+          <button type="button" data-rich-command="bold" title="Fett"><strong>B</strong></button>
+          <button type="button" data-rich-command="italic" title="Kursiv"><em>I</em></button>
+          <button type="button" data-rich-command="underline" title="Unterstrichen"><u>U</u></button>
+          <button type="button" data-rich-command="insertUnorderedList" title="Aufzählung">•</button>
+          <button type="button" data-rich-command="insertOrderedList" title="Nummerierung">1.</button>
+          <button type="button" data-rich-command="outdent" title="Einzug verringern">‹</button>
+          <button type="button" data-rich-command="indent" title="Einzug erhöhen">›</button>
+          <select data-rich-block title="Absatzformat">
+            <option value="p">Text</option>
+            <option value="h3">Überschrift</option>
+            <option value="h4">Zwischentitel</option>
+          </select>
+          <button type="button" data-rich-link title="Link einfügen">Link</button>
+          <input type="color" data-rich-color title="Textfarbe" value="#18211f" />
+        </div>
+        <div
+          class="rich-editor"
+          contenteditable="true"
+          role="textbox"
+          aria-multiline="true"
+          data-rich-editor
+          data-rich-input="${id}"
+          ${editorRequired}
+          data-placeholder="${escapeHtml(placeholder)}"
+        >${html}</div>
+      </div>
+    </label>
+  `;
+}
+
+function syncRichEditor(editor) {
+  const input = document.getElementById(editor.dataset.richInput || "");
+  if (!input) return;
+  const html = richTextToHtml(editor.innerHTML);
+  input.value = html;
+  editor.classList.toggle("is-empty", !richTextPlain(html));
+}
+
+function syncRichEditors(root = document) {
+  root.querySelectorAll("[data-rich-editor]").forEach(syncRichEditor);
+}
+
+function richEditorForControl(control) {
+  return control.closest(".rich-editor-shell")?.querySelector("[data-rich-editor]");
+}
+
+function setRichEditorValue(editor, value = "") {
+  editor.innerHTML = richTextToHtml(value);
+  syncRichEditor(editor);
+}
+
+function applyRichCommand(control, command, value = null) {
+  const editor = richEditorForControl(control);
+  if (!editor) return;
+  editor.focus();
+  document.execCommand(command, false, value);
+  syncRichEditor(editor);
+}
+
+function normalizedPasteHtml(event) {
+  const html = event.clipboardData?.getData("text/html") || "";
+  if (html) return richTextToHtml(html);
+  const text = event.clipboardData?.getData("text/plain") || "";
+  return textToRichHtml(text);
+}
+
 function personName(person, fallback = "Unbekannt") {
   const fullName = String(person?.full_name || "").trim();
   if (fullName) return fullName;
@@ -893,7 +1087,7 @@ function renderTask(task) {
         </div>
         <span class="chip ${statusClass}">${escapeHtml(status)}</span>
       </header>
-      <p class="task-description">${escapeHtml(task.description || "Keine Beschreibung")}</p>
+      ${renderRichPreview(task.description, "Keine Beschreibung", "task-description")}
       <div class="task-meta chips">
         <span class="chip">Fällig ${formatDate(task.due_date)}</span>
         ${task.reflections?.length ? `<span class="chip done">Reflexion vorhanden</span>` : ""}
@@ -920,7 +1114,7 @@ function renderTaskForm() {
             .filter((template) => template.preset_id === state.organization.industry_preset_id)
             .map(
               (template) =>
-                `<option value="${template.id}" data-title="${escapeHtml(template.title)}" data-description="${escapeHtml(template.description)}">${escapeHtml(template.title)}</option>`,
+                `<option value="${template.id}" data-title="${escapeHtml(template.title)}" data-description="${escapeHtml(richTextToHtml(template.description))}">${escapeHtml(template.title)}</option>`,
             )
             .join("")}
         </select>
@@ -929,10 +1123,9 @@ function renderTaskForm() {
         <span>Titel</span>
         <input name="title" data-task-title required placeholder="z. B. Atemübung 3x diese Woche" />
       </label>
-      <label class="field">
-        <span>Beschreibung</span>
-        <textarea name="description" data-task-description placeholder="Was soll umgesetzt werden?"></textarea>
-      </label>
+      ${renderRichTextField("description", "Beschreibung", "", {
+        placeholder: "Was soll umgesetzt werden?",
+      }).replace("data-rich-editor", "data-rich-editor data-task-description")}
       <label class="field">
         <span>Fälligkeitsdatum</span>
         <input name="due_date" type="date" required value="${todayIso}" />
@@ -1014,7 +1207,7 @@ function renderReflection(reflection) {
           <strong>${escapeHtml(reflection.tasks?.title || "Reflexion")}</strong>
           ${reflection.mood ? `<span class="chip">${escapeHtml(reflection.mood)}</span>` : ""}
         </div>
-        <p>${escapeHtml(reflection.text)}</p>
+        ${renderRichPreview(reflection.text, "Keine Reflexion", "reflection-text")}
         <small class="muted">${escapeHtml(personName(reflection.client, "Client"))}</small>
       </div>
     </article>
@@ -1203,10 +1396,10 @@ function renderClientProfile() {
           <h2>Private Notiz</h2>
           <p class="muted">Nur du kannst diese Notizen sehen. Sie werden dem Client nicht angezeigt.</p>
           <input type="hidden" name="client_id" value="${escapeHtml(relationship.client_id)}" />
-          <label class="field">
-            <span>Notiz</span>
-            <textarea name="text" required placeholder="Beobachtung, Kontext oder Gesprächspunkt festhalten"></textarea>
-          </label>
+          ${renderRichTextField("text", "Notiz", "", {
+            required: true,
+            placeholder: "Beobachtung, Kontext oder Gesprächspunkt festhalten",
+          })}
           <button class="btn primary">Notiz speichern</button>
         </form>
         <div class="panel">
@@ -1240,7 +1433,7 @@ function renderTaskGroup(title, tasks) {
 function renderNote(note) {
   return `
     <article class="task-row">
-      <p>${escapeHtml(note.text)}</p>
+      ${renderRichPreview(note.text, "Keine Notiz", "note-text")}
       <span class="chip">${new Intl.DateTimeFormat("de-AT", {
         day: "2-digit",
         month: "2-digit",
@@ -1524,10 +1717,10 @@ function renderTemplateSettings() {
           <span>Titel</span>
           <input name="title" required placeholder="z. B. Wochenreflexion" />
         </label>
-        <label class="field">
-          <span>Beschreibung</span>
-          <textarea name="description" required placeholder="Was soll der Client tun?"></textarea>
-        </label>
+        ${renderRichTextField("description", "Beschreibung", "", {
+          required: true,
+          placeholder: "Was soll der Client tun?",
+        })}
         <button class="btn primary">Template speichern</button>
       </form>
       <div class="task-list">
@@ -1552,10 +1745,7 @@ function renderTemplateRow(template) {
           <span>Titel</span>
           <input name="title" required value="${escapeHtml(template.title)}" />
         </label>
-        <label class="field">
-          <span>Beschreibung</span>
-          <textarea name="description" required>${escapeHtml(template.description)}</textarea>
-        </label>
+        ${renderRichTextField("description", "Beschreibung", template.description, { required: true })}
         <div class="template-actions">
           <button class="btn primary">Speichern</button>
           <button type="button" class="btn" data-cancel-template-edit>Abbrechen</button>
@@ -1568,7 +1758,7 @@ function renderTemplateRow(template) {
     <article class="template-row">
       <div>
         <strong>${escapeHtml(template.title)}</strong>
-        <p>${escapeHtml(template.description)}</p>
+        ${renderRichPreview(template.description, "Keine Beschreibung", "template-description")}
       </div>
       <div class="template-actions">
         <button class="icon-btn" title="Template bearbeiten" data-edit-template="${template.id}">Bearbeiten</button>
@@ -1585,10 +1775,7 @@ function renderReflectionModal() {
       <form class="modal-card stack" data-action="complete-task">
         <h2>${escapeHtml(task.title)}</h2>
         <p class="muted">${escapeHtml(state.preset?.reflection_prompt || "Wie ist es dir damit gegangen?")}</p>
-        <label class="field">
-          <span>Reflexion</span>
-          <textarea name="text" required></textarea>
-        </label>
+        ${renderRichTextField("text", "Reflexion", "", { required: true })}
         <label class="field">
           <span>Gefühl / Status</span>
           <select name="mood" required>
@@ -1834,6 +2021,7 @@ async function handleSubmit(event) {
   const form = event.target.closest("form");
   if (!form) return;
   event.preventDefault();
+  syncRichEditors(form);
   const action = form.dataset.action;
   const values = Object.fromEntries(new FormData(form));
   values.client_ids = new FormData(form).getAll("client_ids");
@@ -1841,6 +2029,12 @@ async function handleSubmit(event) {
   state.message = "";
 
   try {
+    const missingRichText = [...form.querySelectorAll("[data-rich-required='true']")].find(
+      (editor) => !richTextPlain(editor.innerHTML),
+    );
+    if (missingRichText) {
+      throw new Error("Bitte alle Pflichtfelder ausfüllen.");
+    }
     if (action === "auth") await submitAuth(form, event.submitter);
     if (action === "invite-signup") await submitInviteSignup(values);
     if (action === "update-profile-name") await updateProfileName(values);
@@ -1907,7 +2101,7 @@ async function createTask(values) {
     coach_id: state.session.user.id,
     client_id: clientId,
     title: values.title,
-    description: values.description || "",
+    description: richTextToHtml(values.description || ""),
     due_date: values.due_date,
   }));
 
@@ -2159,7 +2353,7 @@ async function createTemplate(values) {
     organization_id: state.organization.id,
     preset_id: state.organization.industry_preset_id,
     title: values.title,
-    description: values.description,
+    description: richTextToHtml(values.description),
     created_by: state.session.user.id,
   });
   if (error) throw error;
@@ -2190,7 +2384,7 @@ async function updateTemplate(values) {
     .from("task_templates")
     .update({
       title: values.title,
-      description: values.description,
+      description: richTextToHtml(values.description),
     })
     .eq("id", values.id)
     .eq("organization_id", state.organization.id);
@@ -2207,7 +2401,7 @@ async function createNote(values) {
     organization_id: state.organization.id,
     coach_id: state.session.user.id,
     client_id: values.client_id,
-    text: values.text,
+    text: richTextToHtml(values.text),
   });
   if (error) throw error;
   state.message = "Private Notiz gespeichert.";
@@ -2241,7 +2435,7 @@ async function completeTask(values) {
 
   const { error } = await state.supabase.rpc("complete_task", {
     task_id: state.modalTask.id,
-    reflection_text: values.text,
+    reflection_text: richTextToHtml(values.text),
     reflection_mood: values.mood,
   });
   if (error) throw error;
@@ -2306,7 +2500,40 @@ app.addEventListener("focusin", (event) => {
   refreshClientPicker();
 });
 
+app.addEventListener("input", (event) => {
+  const editor = event.target.closest("[data-rich-editor]");
+  if (editor) syncRichEditor(editor);
+});
+
+app.addEventListener("paste", (event) => {
+  const editor = event.target.closest("[data-rich-editor]");
+  if (!editor) return;
+  event.preventDefault();
+  document.execCommand("insertHTML", false, normalizedPasteHtml(event));
+  syncRichEditor(editor);
+});
+
+app.addEventListener("keydown", (event) => {
+  const editor = event.target.closest("[data-rich-editor]");
+  if (!editor || event.key !== "Tab") return;
+  event.preventDefault();
+  document.execCommand(event.shiftKey ? "outdent" : "insertHTML", false, event.shiftKey ? null : "&emsp;");
+  syncRichEditor(editor);
+});
+
 app.addEventListener("change", async (event) => {
+  const blockSelect = event.target.closest("[data-rich-block]");
+  if (blockSelect) {
+    applyRichCommand(blockSelect, "formatBlock", blockSelect.value);
+    return;
+  }
+
+  const colorInput = event.target.closest("[data-rich-color]");
+  if (colorInput) {
+    applyRichCommand(colorInput, "foreColor", colorInput.value);
+    return;
+  }
+
   const presetSwitch = event.target.closest("[data-preset-switch]");
   if (presetSwitch) {
     try {
@@ -2335,7 +2562,7 @@ app.addEventListener("change", async (event) => {
   const description = form?.querySelector("[data-task-description]");
 
   if (title) title.value = option?.dataset.title || "";
-  if (description) description.value = option?.dataset.description || "";
+  if (description) setRichEditorValue(description, option?.dataset.description || "");
 });
 
 app.addEventListener("click", async (event) => {
@@ -2346,6 +2573,24 @@ app.addEventListener("click", async (event) => {
 
   const target = event.target.closest("button");
   if (!target) return;
+
+  if (target.dataset.richCommand) {
+    applyRichCommand(target, target.dataset.richCommand);
+    return;
+  }
+
+  if (target.hasAttribute("data-rich-link")) {
+    const href = window.prompt("Link einfügen");
+    if (href) applyRichCommand(target, "createLink", href);
+    return;
+  }
+
+  if (target.hasAttribute("data-toggle-rich-preview")) {
+    const preview = target.closest("[data-rich-preview]");
+    const expanded = preview?.classList.toggle("expanded");
+    target.textContent = expanded ? "Weniger anzeigen" : "Mehr anzeigen";
+    return;
+  }
 
   if (target.hasAttribute("data-toggle-menu")) {
     state.mobileMenuOpen = !state.mobileMenuOpen;
