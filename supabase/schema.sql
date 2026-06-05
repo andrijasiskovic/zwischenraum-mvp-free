@@ -434,6 +434,12 @@ for select to authenticated using (
   client_id = auth.uid()
   or public.has_org_role(organization_id, array['owner']::public.member_role[])
   or public.is_assigned_coach(organization_id, client_id)
+  or exists (
+    select 1
+    from public.tasks
+    where tasks.id = reflections.task_id
+      and tasks.coach_id = auth.uid()
+  )
 );
 
 drop policy if exists "clients create own reflections" on public.reflections;
@@ -681,7 +687,6 @@ as $$
 declare
   invite_code text;
   active_client_count integer := 0;
-  pending_client_invite_count integer := 0;
   current_client_limit integer := 10;
   target_coach_id uuid;
 begin
@@ -701,19 +706,17 @@ begin
     where organization_id = org_id;
 
     select count(distinct client_id) into active_client_count
-    from public.coach_client_relationships
-    where organization_id = org_id
-      and coach_id = target_coach_id
-      and active = true;
+    from public.coach_client_relationships relationships
+    join public.organization_members members
+      on members.organization_id = relationships.organization_id
+      and members.user_id = relationships.client_id
+      and members.role = 'client'
+      and members.active = true
+    where relationships.organization_id = org_id
+      and relationships.coach_id = target_coach_id
+      and relationships.active = true;
 
-    select count(*) into pending_client_invite_count
-    from public.invitations
-    where organization_id = org_id
-      and role = 'client'
-      and coalesce(client_coach_id, invited_by) = target_coach_id
-      and accepted_at is null;
-
-    if current_client_limit > 0 and active_client_count + pending_client_invite_count >= current_client_limit then
+    if current_client_limit > 0 and active_client_count >= current_client_limit then
       raise exception 'CLIENT_LIMIT_REACHED:%', current_client_limit;
     end if;
   end if;
@@ -746,6 +749,9 @@ declare
   new_org_id uuid;
   preset_row public.interface_presets;
   workspace_name text;
+  active_client_count integer := 0;
+  current_client_limit integer := 10;
+  target_coach_id uuid;
 begin
   profile_row := public.ensure_profile('');
   user_email := lower(coalesce((auth.jwt() ->> 'email'), ''));
@@ -821,8 +827,30 @@ begin
   end if;
 
   if invite.role = 'client' then
+    target_coach_id := coalesce(invite.client_coach_id, invite.invited_by);
+
+    select coalesce(client_limit, 10) into current_client_limit
+    from public.organization_settings
+    where organization_id = invite.organization_id;
+
+    select count(distinct relationships.client_id) into active_client_count
+    from public.coach_client_relationships relationships
+    join public.organization_members members
+      on members.organization_id = relationships.organization_id
+      and members.user_id = relationships.client_id
+      and members.role = 'client'
+      and members.active = true
+    where relationships.organization_id = invite.organization_id
+      and relationships.coach_id = target_coach_id
+      and relationships.client_id <> auth.uid()
+      and relationships.active = true;
+
+    if current_client_limit > 0 and active_client_count >= current_client_limit then
+      raise exception 'CLIENT_LIMIT_REACHED:%', current_client_limit;
+    end if;
+
     insert into public.coach_client_relationships (organization_id, coach_id, client_id)
-    values (invite.organization_id, coalesce(invite.client_coach_id, invite.invited_by), auth.uid())
+    values (invite.organization_id, target_coach_id, auth.uid())
     on conflict (organization_id, coach_id, client_id) do update
       set active = true;
   end if;
@@ -843,9 +871,7 @@ join public.profiles
   or lower(profiles.contact_email) = lower(invitations.email)
 where invitations.role = 'client'
   and invitations.accepted_at is not null
-on conflict (organization_id, user_id) do update
-  set role = 'client'::public.member_role,
-      active = true;
+on conflict (organization_id, user_id) do nothing;
 
 insert into public.coach_client_relationships (organization_id, coach_id, client_id, active)
 select distinct
@@ -859,8 +885,7 @@ join public.profiles
   or lower(profiles.contact_email) = lower(invitations.email)
 where invitations.role = 'client'
   and invitations.accepted_at is not null
-on conflict (organization_id, coach_id, client_id) do update
-  set active = true;
+on conflict (organization_id, coach_id, client_id) do nothing;
 
 create or replace function public.get_invitation_info(invite_code text, invite_email text)
 returns table(role public.member_role)
@@ -966,13 +991,50 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  is_owner boolean := false;
+  removed_email text := '';
+  removed_contact_email text := '';
 begin
-  if not (
-    public.has_org_role(org_id, array['owner']::public.member_role[])
-    or public.is_assigned_coach(org_id, removed_client_id)
-  ) then
+  is_owner := public.has_org_role(org_id, array['owner']::public.member_role[]);
+
+  if not (is_owner or public.is_assigned_coach(org_id, removed_client_id)) then
     raise exception 'Not allowed';
   end if;
+
+  select lower(coalesce(email, '')), lower(coalesce(contact_email, ''))
+  into removed_email, removed_contact_email
+  from public.profiles
+  where id = removed_client_id;
+
+  delete from storage.objects objects
+  using public.task_attachments attachments
+  join public.tasks tasks on tasks.id = attachments.task_id
+  where objects.bucket_id = 'task-attachments'
+    and objects.name = attachments.storage_path
+    and tasks.organization_id = org_id
+    and tasks.client_id = removed_client_id
+    and tasks.status <> 'done'
+    and (is_owner or tasks.coach_id = auth.uid());
+
+  delete from public.tasks tasks
+  where tasks.organization_id = org_id
+    and tasks.client_id = removed_client_id
+    and tasks.status <> 'done'
+    and (is_owner or tasks.coach_id = auth.uid());
+
+  delete from public.invitations invitations
+  where invitations.organization_id = org_id
+    and invitations.role = 'client'
+    and invitations.accepted_at is null
+    and (
+      lower(invitations.email) = removed_email
+      or lower(invitations.email) = removed_contact_email
+    )
+    and (
+      is_owner
+      or coalesce(invitations.client_coach_id, invitations.invited_by) = auth.uid()
+    );
 
   update public.coach_client_relationships
   set active = false
@@ -980,14 +1042,21 @@ begin
     and client_id = removed_client_id
     and (
       coach_id = auth.uid()
-      or public.has_org_role(org_id, array['owner']::public.member_role[])
+      or is_owner
     );
 
   update public.organization_members
   set active = false
   where organization_id = org_id
     and user_id = removed_client_id
-    and role = 'client';
+    and role = 'client'
+    and not exists (
+      select 1
+      from public.coach_client_relationships relationships
+      where relationships.organization_id = org_id
+        and relationships.client_id = removed_client_id
+        and relationships.active = true
+    );
 end;
 $$;
 

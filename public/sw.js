@@ -1,4 +1,4 @@
-const CACHE_NAME = "zwischenraum-pwa-v13";
+const CACHE_NAME = "zwischenraum-pwa-v14";
 const APP_SHELL = [
   "./",
   "./index.html",

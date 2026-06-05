@@ -8,7 +8,8 @@ Für die Validierung soll jeder Coach zunächst bis zu 10 Clients selbstständig
 
 - Plan: `test`
 - Client-Limit pro Coach: 10
-- Gezählt werden aktive Clients und offene Client-Einladungen.
+- Gezählt werden aktive Client-Mitglieder mit aktiver Coach-Zuordnung.
+- Offene Client-Einladungen werden angezeigt, zählen aber nicht als verbrauchte Client-Plätze.
 - Coach- und Owner-Einladungen bleiben unabhängig vom Client-Limit möglich.
 - Wenn das Limit erreicht ist, zeigt die App eine verständliche Meldung an und Supabase blockiert zusätzliche Client-Einladungen serverseitig.
 

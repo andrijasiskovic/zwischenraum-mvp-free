@@ -18,6 +18,7 @@ const state = {
   settings: null,
   preset: null,
   clients: [],
+  organizationMembers: [],
   tasks: [],
   reflections: [],
   attachments: [],
@@ -383,6 +384,12 @@ const isOverdue = (task) => task.status === "open" && task.due_date < todayIso;
 const currentRole = () =>
   state.memberships.find((item) => item.organization_id === state.organization?.id)?.role || "";
 const isCoachRole = () => ["owner", "coach"].includes(currentRole());
+const activeClientMemberIds = () =>
+  new Set(
+    state.organizationMembers
+      .filter((member) => member.role === "client" && member.active)
+      .map((member) => member.user_id),
+  );
 const rolePriority = (role = "") => ({ owner: 0, coach: 1, client: 2 })[role] ?? 9;
 
 function workspaceStorageKey() {
@@ -640,7 +647,7 @@ async function loadWorkspaceData() {
     relationshipQuery.eq("client_id", state.session.user.id);
   }
 
-  const [tasks, relationships, reflections, invitations, notes, templates, attachments] = await Promise.all([
+  const [tasks, relationships, orgMembers, reflections, invitations, notes, templates, attachments] = await Promise.all([
     state.supabase
       .from("tasks")
       .select(
@@ -649,6 +656,11 @@ async function loadWorkspaceData() {
       .eq("organization_id", orgId)
       .order("due_date", { ascending: true }),
     relationshipQuery,
+    state.supabase
+      .from("organization_members")
+      .select("user_id, role, active")
+      .eq("organization_id", orgId)
+      .eq("active", true),
     state.supabase
       .from("reflections")
       .select("*, tasks(title), client:profiles!reflections_client_id_fkey(full_name, email, contact_email, phone)")
@@ -678,7 +690,7 @@ async function loadWorkspaceData() {
       .order("created_at", { ascending: true }),
   ]);
 
-  for (const result of [tasks, relationships, reflections, invitations, notes, templates]) {
+  for (const result of [tasks, relationships, orgMembers, reflections, invitations, notes, templates]) {
     if (result.error) throw result.error;
   }
   if (attachments.error && !missingAttachmentSchema(attachments.error)) {
@@ -698,7 +710,9 @@ async function loadWorkspaceData() {
       attachments: attachmentRows.filter((attachment) => attachment.reflection_id === reflection.id),
     })),
   }));
-  state.clients = relationships.data || [];
+  state.organizationMembers = orgMembers.data || [];
+  const activeWorkspaceClientIds = activeClientMemberIds();
+  state.clients = (relationships.data || []).filter((relationship) => activeWorkspaceClientIds.has(relationship.client_id));
   state.reflections = reflectionRows;
   state.attachments = attachmentRows;
   state.invitations = invitations.data || [];
@@ -1596,6 +1610,8 @@ function renderInvites() {
 
 function renderInviteForm() {
   const userId = state.session.user.id;
+  const role = currentRole();
+  const showClientLimit = role === "coach";
   const openClientInvites = state.invitations.filter(
     (invite) =>
       !invite.accepted_at &&
@@ -1603,19 +1619,31 @@ function renderInviteForm() {
       (invite.client_coach_id || invite.invited_by) === userId,
   ).length;
   const clientLimit = Number(state.settings?.client_limit || 10);
-  const activeClientSlots = state.clients.filter((relationship) => relationship.coach_id === userId).length;
-  const usedClientSlots = activeClientSlots + openClientInvites;
+  const activeMemberIds = activeClientMemberIds();
+  const workspaceActiveClients = activeMemberIds.size;
+  const activeClientSlots = new Set(
+    state.clients
+      .filter((relationship) => relationship.coach_id === userId && activeMemberIds.has(relationship.client_id))
+      .map((relationship) => relationship.client_id),
+  ).size;
+  const usedClientSlots = activeClientSlots;
   const clientLimitReached = clientLimit > 0 && usedClientSlots >= clientLimit;
   return `
     <form class="panel form-grid invite-flow" data-action="create-invite">
       <h2>Person einladen</h2>
-      <div class="limit-meter ${clientLimitReached ? "is-full" : ""}">
-        <div>
-          <strong>Testphase</strong>
-          <span>${usedClientSlots}/${clientLimit} Client-Plätze genutzt</span>
-        </div>
-        <small>Mehr Plätze können später freigeschaltet werden.</small>
-      </div>
+      ${
+        showClientLimit
+          ? `
+            <div class="limit-meter ${clientLimitReached ? "is-full" : ""}">
+              <div>
+                <strong>Testphase</strong>
+                <span>${usedClientSlots}/${clientLimit} aktive Client-Plätze genutzt</span>
+              </div>
+              <small>${openClientInvites} offene Einladung${openClientInvites === 1 ? "" : "en"} · mehr Plätze können später freigeschaltet werden.</small>
+            </div>
+          `
+          : `<p class="notice">Owner-Ansicht: ${workspaceActiveClients} aktive Client-Mitglied${workspaceActiveClients === 1 ? "" : "er"} im Workspace. Lade hier vor allem Coaches ein; jeder Coach hat eigene Client-Plätze.</p>`
+      }
       <label class="field">
         <span>E-Mail</span>
         <input name="email" type="email" required placeholder="client@example.com" />
@@ -1623,14 +1651,20 @@ function renderInviteForm() {
       <label class="field">
         <span>Rolle</span>
         <select name="role">
-          <option value="client">${escapeHtml(state.preset?.client_label || "Client")}</option>
-          <option value="coach">${escapeHtml(state.preset?.practitioner_label || "Coach")}</option>
-          ${currentRole() === "owner" ? `<option value="owner">Owner</option>` : ""}
+          ${
+            role === "owner"
+              ? `
+                <option value="coach">${escapeHtml(state.preset?.practitioner_label || "Coach")}</option>
+                <option value="client">${escapeHtml(state.preset?.client_label || "Client")}</option>
+                <option value="owner">Owner</option>
+              `
+              : `<option value="client">${escapeHtml(state.preset?.client_label || "Client")}</option>`
+          }
         </select>
       </label>
       <button class="btn primary">Code erstellen</button>
       ${
-        clientLimitReached
+        showClientLimit && clientLimitReached
           ? `<p class="notice">Das Testlimit für Clients ist erreicht. Weitere Client-Einladungen benötigen eine Freischaltung.</p>`
           : ""
       }
@@ -2776,7 +2810,7 @@ async function createNote(values) {
 
 async function removeClient(clientId, clientName) {
   const confirmed = window.confirm(
-    `${clientName} aus diesem Workspace entfernen?\n\nDer Zugriff auf die App-Daten dieser Organisation wird damit entzogen. Aufgaben und Reflexionen bleiben als Verlauf erhalten.`,
+    `${clientName} aus diesem Workspace entfernen?\n\nDer Zugriff wird entzogen, offene Aufgaben und offene Einladungen werden gelöscht. Erledigte Aufgaben, Reflexionen und private Notizen bleiben als Verlauf für dich erhalten.`,
   );
   if (!confirmed) return;
 
@@ -2788,7 +2822,7 @@ async function removeClient(clientId, clientName) {
 
   state.selectedClientId = "";
   state.view = "clients";
-  state.message = "Client wurde entfernt und der Zugriff auf diesen Workspace wurde entzogen.";
+  state.message = "Client wurde entfernt. Zugriff, offene Aufgaben und offene Einladungen wurden bereinigt.";
   await loadWorkspaceData();
   renderApp();
 }
