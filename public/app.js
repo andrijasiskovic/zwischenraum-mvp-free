@@ -1586,9 +1586,20 @@ function renderInvites() {
 }
 
 function renderInviteForm() {
+  const openClientInvites = state.invitations.filter((invite) => !invite.accepted_at && invite.role === "client").length;
+  const clientLimit = Number(state.settings?.client_limit || 10);
+  const usedClientSlots = state.clients.length + openClientInvites;
+  const clientLimitReached = clientLimit > 0 && usedClientSlots >= clientLimit;
   return `
     <form class="panel form-grid invite-flow" data-action="create-invite">
       <h2>Person einladen</h2>
+      <div class="limit-meter ${clientLimitReached ? "is-full" : ""}">
+        <div>
+          <strong>Testphase</strong>
+          <span>${usedClientSlots}/${clientLimit} Client-Plätze genutzt</span>
+        </div>
+        <small>Mehr Plätze können später freigeschaltet werden.</small>
+      </div>
       <label class="field">
         <span>E-Mail</span>
         <input name="email" type="email" required placeholder="client@example.com" />
@@ -1602,6 +1613,11 @@ function renderInviteForm() {
         </select>
       </label>
       <button class="btn primary">Code erstellen</button>
+      ${
+        clientLimitReached
+          ? `<p class="notice">Das Testlimit für Clients ist erreicht. Weitere Client-Einladungen benötigen eine Freischaltung.</p>`
+          : ""
+      }
     </form>
   `;
 }
@@ -2429,7 +2445,16 @@ async function createInvite(values) {
     invite_role: values.role,
     client_coach: state.session.user.id,
   });
-  if (error) throw error;
+  if (error) {
+    const message = String(error.message || "");
+    if (message.includes("CLIENT_LIMIT_REACHED")) {
+      const limit = message.split(":").pop() || state.settings?.client_limit || 10;
+      throw new Error(
+        `Das Testlimit von ${limit} Clients ist erreicht. Für weitere Clients muss dieser Workspace freigeschaltet werden.`
+      );
+    }
+    throw error;
+  }
   await loadWorkspaceData();
   const createdInvite = state.invitations.find((invite) => invite.code === data);
   state.lastInviteId = createdInvite?.id || "";

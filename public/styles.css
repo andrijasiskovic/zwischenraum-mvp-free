@@ -1202,6 +1202,37 @@ select:focus {
   color: color-mix(in srgb, var(--primary), black 35%);
 }
 
+.limit-meter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary), white 78%);
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--primary), white 92%);
+}
+
+.limit-meter div {
+  display: grid;
+  gap: 2px;
+}
+
+.limit-meter strong {
+  font-size: 0.9rem;
+}
+
+.limit-meter span,
+.limit-meter small {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.limit-meter.is-full {
+  border-color: color-mix(in srgb, var(--warn), white 56%);
+  background: color-mix(in srgb, var(--warn), white 88%);
+}
+
 .error {
   color: var(--danger);
 }

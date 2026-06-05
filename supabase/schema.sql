@@ -47,6 +47,8 @@ create table if not exists public.organization_settings (
   primary_color text not null default '#5B7C99',
   secondary_color text not null default '#7FAEA3',
   brand_profiles jsonb not null default '{}'::jsonb,
+  client_limit integer not null default 10,
+  plan_name text not null default 'test',
   updated_at timestamptz not null default now()
 );
 
@@ -61,6 +63,12 @@ add column if not exists hero_image_url text not null default '';
 
 alter table public.organization_settings
 add column if not exists brand_profiles jsonb not null default '{}'::jsonb;
+
+alter table public.organization_settings
+add column if not exists client_limit integer not null default 10;
+
+alter table public.organization_settings
+add column if not exists plan_name text not null default 'test';
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -672,6 +680,9 @@ set search_path = public
 as $$
 declare
   invite_code text;
+  active_client_count integer := 0;
+  pending_client_invite_count integer := 0;
+  current_client_limit integer := 10;
 begin
   if not public.has_org_role(org_id, array['owner','coach']::public.member_role[]) then
     raise exception 'Not allowed';
@@ -679,6 +690,27 @@ begin
 
   if invite_role = 'owner' and not public.has_org_role(org_id, array['owner']::public.member_role[]) then
     raise exception 'Only owners can invite owners';
+  end if;
+
+  if invite_role = 'client' then
+    select coalesce(client_limit, 10) into current_client_limit
+    from public.organization_settings
+    where organization_id = org_id;
+
+    select count(distinct client_id) into active_client_count
+    from public.coach_client_relationships
+    where organization_id = org_id
+      and active = true;
+
+    select count(*) into pending_client_invite_count
+    from public.invitations
+    where organization_id = org_id
+      and role = 'client'
+      and accepted_at is null;
+
+    if current_client_limit > 0 and active_client_count + pending_client_invite_count >= current_client_limit then
+      raise exception 'CLIENT_LIMIT_REACHED:%', current_client_limit;
+    end if;
   end if;
 
   invite_code := upper(left(md5(random()::text || clock_timestamp()::text || auth.uid()::text), 10));
