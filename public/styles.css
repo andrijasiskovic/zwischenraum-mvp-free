@@ -416,6 +416,38 @@ select:focus {
   box-shadow: none;
 }
 
+.mobile-brand-stack {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.workspace-switcher {
+  display: grid;
+  gap: 5px;
+}
+
+.workspace-switcher span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workspace-switcher select {
+  min-height: 36px;
+  border-radius: 11px;
+  padding: 0 10px;
+  background: rgba(255, 254, 250, 0.88);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.workspace-switcher.mobile {
+  display: none;
+}
+
 .icon-btn {
   width: 44px;
   height: 44px;
@@ -1282,7 +1314,7 @@ select:focus {
 @media (max-width: 980px) {
   .app-shell {
     display: block;
-    padding-top: 74px;
+    padding-top: 98px;
   }
 
   .mobile-header {
@@ -1291,7 +1323,8 @@ select:focus {
     top: 0;
     left: 0;
     right: 0;
-    height: 74px;
+    min-height: 74px;
+    height: auto;
     padding: 12px 14px;
     display: flex;
     align-items: center;
@@ -1300,6 +1333,26 @@ select:focus {
     border-bottom: 1px solid rgba(223, 221, 213, 0.78);
     background: rgba(246, 244, 239, 0.86);
     backdrop-filter: blur(18px);
+  }
+
+  .workspace-switcher.sidebar {
+    margin-top: -8px;
+  }
+
+  .workspace-switcher.mobile {
+    display: grid;
+  }
+
+  .workspace-switcher.mobile span {
+    display: none;
+  }
+
+  .workspace-switcher.mobile select {
+    min-height: 28px;
+    max-width: min(62vw, 260px);
+    padding: 0 8px;
+    border-radius: 9px;
+    font-size: 0.74rem;
   }
 
   .sidebar {

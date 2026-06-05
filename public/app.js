@@ -14,6 +14,7 @@ const state = {
   profile: null,
   memberships: [],
   organization: null,
+  selectedOrganizationId: "",
   settings: null,
   preset: null,
   clients: [],
@@ -384,6 +385,19 @@ const currentRole = () =>
 const isCoachRole = () => ["owner", "coach"].includes(currentRole());
 const rolePriority = (role = "") => ({ owner: 0, coach: 1, client: 2 })[role] ?? 9;
 
+function workspaceStorageKey() {
+  return `zwischenraum.activeWorkspace.${state.session?.user?.id || "anonymous"}`;
+}
+
+function rememberActiveWorkspace(orgId = "") {
+  state.selectedOrganizationId = orgId;
+  if (orgId) {
+    window.localStorage.setItem(workspaceStorageKey(), orgId);
+  } else {
+    window.localStorage.removeItem(workspaceStorageKey());
+  }
+}
+
 function resetNavigationState() {
   state.view = "dashboard";
   state.filter = "open";
@@ -543,7 +557,7 @@ async function acceptPendingInviteForCurrentUser() {
   const pendingInvite = popPendingInvite(email);
   if (!pendingInvite?.code) return;
 
-  const { error } = await state.supabase.rpc("accept_invitation", {
+  const { data: acceptedOrgId, error } = await state.supabase.rpc("accept_invitation", {
     invite_code: pendingInvite.code,
     selected_preset_id: pendingInvite.presetId || null,
     company_name: pendingInvite.companyName || "",
@@ -553,6 +567,7 @@ async function acceptPendingInviteForCurrentUser() {
     throw error;
   }
 
+  if (acceptedOrgId) rememberActiveWorkspace(acceptedOrgId);
   clearInviteParams();
 }
 
@@ -580,11 +595,20 @@ async function loadMemberships() {
     .eq("active", true);
   if (error) throw error;
 
-  state.memberships = (data || []).sort((a, b) => rolePriority(a.role) - rolePriority(b.role));
-  const active = state.memberships[0]?.organizations || null;
+  state.memberships = (data || []).sort((a, b) => {
+    const roleDiff = rolePriority(a.role) - rolePriority(b.role);
+    if (roleDiff) return roleDiff;
+    return String(a.organizations?.name || "").localeCompare(String(b.organizations?.name || ""), "de");
+  });
+  const savedOrgId = state.selectedOrganizationId || window.localStorage.getItem(workspaceStorageKey()) || "";
+  const selectedMembership =
+    state.memberships.find((membership) => membership.organization_id === savedOrgId) || state.memberships[0] || null;
+  const active = selectedMembership?.organizations || null;
   state.organization = active;
+  state.selectedOrganizationId = active?.id || "";
 
   if (active) {
+    rememberActiveWorkspace(active.id);
     const { data: settings, error: settingsError } = await state.supabase
       .from("organization_settings")
       .select("*")
@@ -594,6 +618,10 @@ async function loadMemberships() {
     state.settings = settings;
     state.preset = state.presets.find((preset) => preset.id === active.industry_preset_id);
     setTheme();
+  } else {
+    rememberActiveWorkspace("");
+    state.settings = null;
+    state.preset = null;
   }
 }
 
@@ -961,12 +989,15 @@ function renderMobileHeader() {
 
   return `
     <header class="mobile-header">
-      <div class="brand compact">
-        <div class="mark">${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="" />` : escapeHtml(logo)}</div>
-        <div>
-          <strong>${escapeHtml(brand.display_name)}</strong>
-          <small>${escapeHtml(navTitle())}</small>
+      <div class="mobile-brand-stack">
+        <div class="brand compact">
+          <div class="mark">${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="" />` : escapeHtml(logo)}</div>
+          <div>
+            <strong>${escapeHtml(brand.display_name)}</strong>
+            <small>${escapeHtml(navTitle())}</small>
+          </div>
         </div>
+        ${renderWorkspaceSwitcher("mobile")}
       </div>
       <button class="icon-btn menu-toggle" data-toggle-menu aria-label="Menü öffnen" aria-expanded="${state.mobileMenuOpen ? "true" : "false"}">
         <span></span>
@@ -1004,6 +1035,7 @@ function renderSidebar(role) {
         </div>
         <button class="icon-btn sidebar-close" data-close-menu aria-label="Menü schließen">×</button>
       </div>
+      ${renderWorkspaceSwitcher("sidebar")}
       <nav class="nav">
         ${navItems
           .map(
@@ -1017,6 +1049,24 @@ function renderSidebar(role) {
         <button class="btn" data-action="logout">Abmelden</button>
       </div>
     </aside>
+  `;
+}
+
+function renderWorkspaceSwitcher(variant = "sidebar") {
+  if (state.memberships.length <= 1) return "";
+  return `
+    <label class="workspace-switcher ${variant}">
+      <span>Workspace</span>
+      <select data-workspace-switch>
+        ${state.memberships
+          .map((membership) => {
+            const org = membership.organizations || {};
+            const selected = org.id === state.organization?.id ? "selected" : "";
+            return `<option value="${org.id}" ${selected}>${escapeHtml(org.name || "Workspace")} · ${escapeHtml(membership.role)}</option>`;
+          })
+          .join("")}
+      </select>
+    </label>
   `;
 }
 
@@ -2246,11 +2296,12 @@ async function createWorkspace(values) {
 }
 
 async function acceptInvite(values) {
-  const { error } = await state.supabase.rpc("accept_invitation", {
+  const { data: acceptedOrgId, error } = await state.supabase.rpc("accept_invitation", {
     invite_code: values.code,
     selected_preset_id: null,
   });
   if (error) throw error;
+  if (acceptedOrgId) rememberActiveWorkspace(acceptedOrgId);
   clearInviteParams();
   await loadApp();
 }
@@ -2830,6 +2881,22 @@ app.addEventListener("change", async (event) => {
   const colorInput = event.target.closest("[data-rich-color]");
   if (colorInput) {
     applyRichCommand(colorInput, "foreColor", colorInput.value);
+    return;
+  }
+
+  const workspaceSwitch = event.target.closest("[data-workspace-switch]");
+  if (workspaceSwitch) {
+    try {
+      rememberActiveWorkspace(workspaceSwitch.value);
+      resetNavigationState();
+      await loadMemberships();
+      await loadWorkspaceData();
+      state.message = "Workspace gewechselt.";
+      renderApp();
+    } catch (error) {
+      state.error = error.message;
+      renderApp();
+    }
     return;
   }
 
