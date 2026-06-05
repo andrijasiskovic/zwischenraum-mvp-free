@@ -1,4 +1,4 @@
--- Zwischenraum MVP schema for Supabase Free.
+-- Moment:um MVP schema for Supabase Free.
 -- Run this once in the Supabase SQL editor.
 
 create extension if not exists pgcrypto;
@@ -41,7 +41,7 @@ create table if not exists public.organizations (
 create table if not exists public.organization_settings (
   organization_id uuid primary key references public.organizations(id) on delete cascade,
   display_name text not null,
-  logo_text text not null default 'ZR',
+  logo_text text not null default 'M',
   logo_url text not null default '',
   hero_image_url text not null default '',
   primary_color text not null default '#5B7C99',

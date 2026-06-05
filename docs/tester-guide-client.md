@@ -1,6 +1,6 @@
-# Zwischenraum Anleitung für Clients
+# Moment:um Anleitung für Clients
 
-Diese Anleitung zeigt dir, wie du Zwischenraum nutzt. Dein Coach, Trainer oder Berater kann dir Aufgaben für die Zeit zwischen Terminen geben. Du kannst sie erledigen und kurz reflektieren, wie es dir damit gegangen ist.
+Diese Anleitung zeigt dir, wie du Moment:um nutzt. Dein Coach, Trainer oder Berater kann dir Aufgaben für die Zeit zwischen Terminen geben. Du kannst sie erledigen und kurz reflektieren, wie es dir damit gegangen ist.
 
 ## 1. Einladung öffnen
 

@@ -4,11 +4,11 @@ Dieses Modul wird noch nicht eingebaut. Es ist als eines der naechsten Produktzi
 
 ## Produktthese
 
-Zwischenraum soll Coaches, Therapeut:innen, Trainer:innen und Berater:innen nicht nur beim Verteilen von Aufgaben helfen, sondern sichtbar machen, ob die Begleitung zwischen Terminen wirkt.
+Moment:um soll Coaches, Therapeut:innen, Trainer:innen und Berater:innen nicht nur beim Verteilen von Aufgaben helfen, sondern sichtbar machen, ob die Begleitung zwischen Terminen wirkt.
 
 Starke Verkaufsthese:
 
-> Wenn Zwischenraum hilft, die Umsetzungsquote von Aufgaben deutlich zu steigern, entsteht ein sehr klarer Zahlungsgrund fuer Anbieter.
+> Wenn Moment:um hilft, die Umsetzungsquote von Aufgaben deutlich zu steigern, entsteht ein sehr klarer Zahlungsgrund fuer Anbieter.
 
 Beispiel im Verkaufsgespraech:
 

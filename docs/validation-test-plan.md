@@ -1,4 +1,4 @@
-# Zwischenraum MVP Validierung
+# Moment:um MVP Validierung
 
 Dieses Dokument beschreibt den Ablauf fuer Tests mit echten Coach-Testkunden.
 

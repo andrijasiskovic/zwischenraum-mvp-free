@@ -1,6 +1,6 @@
 # Kurze Datenschutz-Info für Tester
 
-Du testest eine frühe MVP-Version von Zwischenraum. Die App dient dazu, Aufgaben und Reflexionen zwischen Terminen übersichtlich zu begleiten.
+Du testest eine frühe MVP-Version von Moment:um. Die App dient dazu, Aufgaben und Reflexionen zwischen Terminen übersichtlich zu begleiten.
 
 ## Welche Daten verarbeitet werden
 
@@ -19,7 +19,7 @@ Dein Coach, Trainer oder Berater sieht die Aufgaben und Reflexionen in seinem ei
 
 ## Zweck des Tests
 
-Der Test dient dazu, Bedienbarkeit, Nutzen und Produktidee zu validieren. Feedback kann genutzt werden, um Zwischenraum weiterzuentwickeln.
+Der Test dient dazu, Bedienbarkeit, Nutzen und Produktidee zu validieren. Feedback kann genutzt werden, um Moment:um weiterzuentwickeln.
 
 ## Wichtig für die Testphase
 

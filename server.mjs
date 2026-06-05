@@ -37,5 +37,5 @@ createServer(async (request, response) => {
     response.end("Not found");
   }
 }).listen(port, () => {
-  console.log(`Zwischenraum MVP running at http://127.0.0.1:${port}`);
+  console.log(`Moment:um MVP running at http://127.0.0.1:${port}`);
 });

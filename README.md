@@ -1,6 +1,6 @@
-# Zwischenraum MVP Free
+# Moment:um MVP Free
 
-Dieses Projekt ist die kostenlose Validierungsvariante von Zwischenraum.
+Dieses Projekt ist die kostenlose Validierungsvariante von Moment:um.
 
 Die App besteht aus:
 

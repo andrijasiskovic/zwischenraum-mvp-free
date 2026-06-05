@@ -4,7 +4,7 @@ Dieses Dokument kann als interne Anleitung fuer den Betreiber genutzt werden.
 
 ## Coach einladen
 
-1. Als Betreiber in Zwischenraum einloggen.
+1. Als Betreiber in Moment:um einloggen.
 2. Zu `Einladungen` gehen.
 3. E-Mail des Testcoaches eingeben.
 4. Rolle `Coach` waehlen.

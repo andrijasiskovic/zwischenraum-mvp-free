@@ -96,14 +96,14 @@ Für die Testphase sollte daher gelten:
    Wahrscheinliches Zielmodell:
 
    - Coach/Praxis/Trainer ist Verantwortlicher gegenüber eigenen Clients.
-   - Zwischenraum ist Auftragsverarbeiter für die Coaches.
+   - Moment:um ist Auftragsverarbeiter für die Coaches.
    - Supabase/GitHub sind Unterauftragsverarbeiter bzw. technische Dienstleister.
 
    Das muss rechtlich final geprüft werden.
 
 3. Auftragsverarbeitungsvertrag
 
-   Für B2B-Kunden braucht Zwischenraum später einen AVV mit Coaches. Zusätzlich muss geprüft werden, ob mit Supabase ein DPA/AVV abgeschlossen ist. Supabase stellt laut eigener DPA-Seite ein Data Processing Addendum bereit.
+   Für B2B-Kunden braucht Moment:um später einen AVV mit Coaches. Zusätzlich muss geprüft werden, ob mit Supabase ein DPA/AVV abgeschlossen ist. Supabase stellt laut eigener DPA-Seite ein Data Processing Addendum bereit.
 
 4. Technische und organisatorische Maßnahmen
 

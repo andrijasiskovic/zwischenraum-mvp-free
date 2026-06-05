@@ -1,6 +1,6 @@
-# Zwischenraum Anleitung für Coaches, Trainer und Berater
+# Moment:um Anleitung für Coaches, Trainer und Berater
 
-Diese Anleitung hilft dir beim Einstieg in Zwischenraum. Die App unterstützt dich dabei, Clients zwischen Terminen mit Aufgaben, Reflexionen und Erinnerungen zu begleiten.
+Diese Anleitung hilft dir beim Einstieg in Moment:um. Die App unterstützt dich dabei, Clients zwischen Terminen mit Aufgaben, Reflexionen und Erinnerungen zu begleiten.
 
 ## 1. Zugang erstellen
 

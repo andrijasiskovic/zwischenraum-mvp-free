@@ -70,7 +70,7 @@ function isPlatformOwner() {
 }
 
 function pendingInviteKey(email) {
-  return `zwischenraum.pendingInvite.${String(email || "").toLowerCase()}`;
+  return `momentum.pendingInvite.${String(email || "").toLowerCase()}`;
 }
 
 function rememberPendingInvite(email, code, presetId = "", companyName = "") {
@@ -393,7 +393,7 @@ const activeClientMemberIds = () =>
 const rolePriority = (role = "") => ({ owner: 0, coach: 1, client: 2 })[role] ?? 9;
 
 function workspaceStorageKey() {
-  return `zwischenraum.activeWorkspace.${state.session?.user?.id || "anonymous"}`;
+  return `momentum.activeWorkspace.${state.session?.user?.id || "anonymous"}`;
 }
 
 function rememberActiveWorkspace(orgId = "") {
@@ -435,8 +435,8 @@ function activeBrandSettings(presetId = state.organization?.industry_preset_id) 
       : savedDisplayName;
 
   return {
-    display_name: displayName || organizationName || "Zwischenraum",
-    logo_text: brand.logo_text || state.settings?.logo_text || "ZR",
+    display_name: displayName || organizationName || "Moment:um",
+    logo_text: brand.logo_text || state.settings?.logo_text || "M",
     logo_url: brand.logo_url || state.settings?.logo_url || "",
     hero_image_url: resolveHeroImageUrl(presetId, brand, preset),
     primary_color: brand.primary_color || state.settings?.primary_color || preset.accent_color || "#5B7C99",
@@ -746,7 +746,7 @@ function renderMissingConfig() {
         <div class="brand">
           <div class="mark"><img src="./icons/icon-192.png" alt="" /></div>
           <div>
-            <strong>Zwischenraum MVP</strong>
+            <strong>Moment:um MVP</strong>
             <small>Supabase noch nicht verbunden</small>
           </div>
         </div>
@@ -771,7 +771,7 @@ function renderAuth() {
         <div class="brand">
           <div class="mark"><img src="./icons/icon-192.png" alt="" /></div>
           <div>
-            <strong>Zwischenraum</strong>
+            <strong>Moment:um</strong>
             <small>Begleitung zwischen Terminen</small>
           </div>
         </div>
@@ -808,7 +808,7 @@ function renderInviteRegistration(invite) {
           <div class="mark"><img src="./icons/icon-192.png" alt="" /></div>
           <div>
             <strong>Einladung annehmen</strong>
-            <small>Zwischenraum</small>
+            <small>Moment:um</small>
           </div>
         </div>
         <div>
@@ -2531,11 +2531,11 @@ function openInviteEmail(email, code, inviteUrl) {
 function inviteMessage(email, code, inviteUrl) {
   return {
     email,
-    subject: "Einladung zu Zwischenraum",
+    subject: "Einladung zu Moment:um",
     body: [
     "Hallo,",
     "",
-    "du wurdest zu Zwischenraum eingeladen.",
+    "du wurdest zu Moment:um eingeladen.",
     "",
     `Bitte öffne diesen Link: ${inviteUrl}`,
     "",
@@ -2616,11 +2616,11 @@ function reminderMessage(row) {
 
   return {
     email: row.clientEmail,
-    subject: "Erinnerung: offene Aufgaben in Zwischenraum",
+    subject: "Erinnerung: offene Aufgaben in Moment:um",
     body: [
       `Hallo ${row.clientName},`,
       "",
-      "du hast noch offene Aufgaben in Zwischenraum:",
+      "du hast noch offene Aufgaben in Moment:um:",
       "",
       taskLines,
       "",
