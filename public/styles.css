@@ -600,6 +600,25 @@ select:focus {
   box-shadow: 0 4px 16px rgba(24, 33, 31, 0.045);
 }
 
+.readable-row {
+  cursor: zoom-in;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.readable-row:hover,
+.readable-row:focus-visible {
+  border-color: color-mix(in srgb, var(--primary), white 22%);
+  box-shadow: 0 8px 22px rgba(24, 33, 31, 0.075);
+  outline: none;
+}
+
+.readable-row:active {
+  transform: scale(0.995);
+}
+
 .task-row header,
 .client-row {
   display: flex;
@@ -634,10 +653,11 @@ select:focus {
 
 .reflection-row {
   position: relative;
+  border-radius: 12px;
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
   gap: 10px;
-  padding: 12px 0;
+  padding: 12px 8px;
   border-bottom: 1px solid rgba(223, 221, 213, 0.78);
 }
 
@@ -1128,6 +1148,72 @@ select:focus {
   width: min(100%, 860px);
 }
 
+.reader-modal {
+  width: min(100%, 720px);
+  padding: 0;
+  overflow: hidden;
+  touch-action: auto;
+}
+
+.reader-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 20px 20px 12px;
+  border-bottom: 1px solid rgba(223, 221, 213, 0.76);
+}
+
+.reader-head h2 {
+  margin: 4px 0 0;
+  line-height: 1.14;
+}
+
+.reader-eyebrow {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.reader-meta {
+  padding: 12px 20px 0;
+}
+
+.reader-body {
+  max-height: min(62vh, 620px);
+  overflow: auto;
+  padding: 16px 20px 22px;
+  color: #26302d;
+  font-size: 1.02rem;
+  line-height: 1.58;
+  user-select: text;
+  touch-action: auto;
+}
+
+.reader-body p,
+.reader-body ul,
+.reader-body ol {
+  margin: 0 0 0.82em;
+}
+
+.reader-body p:last-child,
+.reader-body ul:last-child,
+.reader-body ol:last-child {
+  margin-bottom: 0;
+}
+
+.reader-body ul,
+.reader-body ol {
+  padding-left: 1.4rem;
+}
+
+.reader-body a {
+  color: color-mix(in srgb, var(--primary), black 12%);
+  font-weight: 750;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -1284,6 +1370,29 @@ select:focus {
   .modal-card {
     max-height: calc(100dvh - 20px);
     padding: 14px;
+  }
+
+  .reader-modal {
+    padding: 0;
+  }
+
+  .reader-head {
+    padding: 15px 15px 10px;
+  }
+
+  .reader-head h2 {
+    font-size: 1.22rem;
+  }
+
+  .reader-meta {
+    padding: 10px 15px 0;
+  }
+
+  .reader-body {
+    max-height: calc(100dvh - 168px);
+    padding: 14px 15px 18px;
+    font-size: 0.98rem;
+    line-height: 1.55;
   }
 
   .modal-card.invite-delivery {

@@ -33,6 +33,7 @@ const state = {
   message: "",
   error: "",
   modalTask: null,
+  readerModal: null,
   lastInviteId: "",
   inviteModalId: "",
   editingTemplateId: "",
@@ -336,6 +337,7 @@ function resetNavigationState() {
   state.filter = "open";
   state.selectedClientId = "";
   state.modalTask = null;
+  state.readerModal = null;
   state.lastInviteId = "";
   state.inviteModalId = "";
   state.editingTemplateId = "";
@@ -869,9 +871,10 @@ function renderApp() {
         ${renderTopbar(role)}
         ${state.message ? `<p class="notice">${escapeHtml(state.message)}</p>` : ""}
         ${state.error ? `<p class="error">${escapeHtml(state.error)}</p>` : ""}
-        ${renderView()}
+      ${renderView()}
       </main>
       ${state.modalTask ? renderReflectionModal() : ""}
+      ${state.readerModal ? renderReaderModal() : ""}
       ${state.inviteModalId ? renderInviteModal() : ""}
       ${state.reminderModalClientId ? renderReminderModal() : ""}
     </div>
@@ -1079,7 +1082,7 @@ function renderTask(task) {
   const status = task.status === "done" ? "Erledigt" : isOverdue(task) ? "Überfällig" : "Offen";
   const statusClass = task.status === "done" ? "done" : isOverdue(task) ? "overdue" : "";
   return `
-    <article class="task-row">
+    <article class="task-row readable-row" data-open-reader="task:${task.id}" role="button" tabindex="0">
       <header>
         <div>
           <h3>${escapeHtml(task.title)}</h3>
@@ -1200,7 +1203,7 @@ function refreshClientPicker(options = {}) {
 
 function renderReflection(reflection) {
   return `
-    <article class="reflection-row">
+    <article class="reflection-row readable-row" data-open-reader="reflection:${reflection.id}" role="button" tabindex="0">
       <div class="reflection-dot"></div>
       <div>
         <div class="reflection-head">
@@ -1763,7 +1766,7 @@ function renderTemplateRow(template) {
   }
 
   return `
-    <article class="template-row">
+    <article class="template-row readable-row" data-open-reader="template:${template.id}" role="button" tabindex="0">
       <div>
         <strong>${escapeHtml(template.title)}</strong>
         ${renderRichPreview(template.description, "Keine Beschreibung", "template-description")}
@@ -1773,6 +1776,87 @@ function renderTemplateRow(template) {
         <button class="icon-btn danger" title="Template löschen" data-delete-template="${template.id}">Löschen</button>
       </div>
     </article>
+  `;
+}
+
+function readerData() {
+  const [type, id] = String(state.readerModal || "").split(":");
+
+  if (type === "task") {
+    const task = state.tasks.find((item) => item.id === id);
+    if (!task) return null;
+    const person = isCoachRole() ? personName(task.client, "Client") : personName(task.coach, "Coach");
+    const status = task.status === "done" ? "Erledigt" : isOverdue(task) ? "Überfällig" : "Offen";
+    const statusClass = task.status === "done" ? "done" : isOverdue(task) ? "overdue" : "";
+    return {
+      eyebrow: "Aufgabe",
+      title: task.title,
+      body: task.description,
+      emptyText: "Keine Beschreibung",
+      meta: [
+        { label: person },
+        { label: status, className: statusClass },
+        { label: `Fällig ${formatDate(task.due_date)}` },
+        task.reflections?.length ? { label: "Reflexion vorhanden", className: "done" } : null,
+      ].filter(Boolean),
+    };
+  }
+
+  if (type === "reflection") {
+    const reflection = state.reflections.find((item) => item.id === id);
+    if (!reflection) return null;
+    return {
+      eyebrow: "Reflexion",
+      title: reflection.tasks?.title || "Reflexion",
+      body: reflection.text,
+      emptyText: "Keine Reflexion",
+      meta: [
+        reflection.mood ? { label: reflection.mood } : null,
+        { label: personName(reflection.client, "Client") },
+      ].filter(Boolean),
+    };
+  }
+
+  if (type === "template") {
+    const template = state.templates.find((item) => item.id === id);
+    if (!template) return null;
+    return {
+      eyebrow: "Template",
+      title: template.title,
+      body: template.description,
+      emptyText: "Keine Beschreibung",
+      meta: [
+        { label: state.preset?.label || "Branche" },
+        { label: "Standard-Aufgabe" },
+      ],
+    };
+  }
+
+  return null;
+}
+
+function renderReaderModal() {
+  const data = readerData();
+  if (!data) return "";
+
+  return `
+    <div class="modal reader-modal-backdrop" data-reader-backdrop>
+      <section class="modal-card reader-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(data.title)}">
+        <header class="reader-head">
+          <div>
+            <span class="reader-eyebrow">${escapeHtml(data.eyebrow)}</span>
+            <h2>${escapeHtml(data.title)}</h2>
+          </div>
+          <button class="icon-btn" data-action="close-reader-modal" aria-label="Leseansicht schließen">×</button>
+        </header>
+        <div class="chips reader-meta">
+          ${data.meta.map((item) => `<span class="chip ${item.className || ""}">${escapeHtml(item.label)}</span>`).join("")}
+        </div>
+        <div class="reader-body">
+          ${richTextToHtml(data.body) || `<p>${escapeHtml(data.emptyText)}</p>`}
+        </div>
+      </section>
+    </div>
   `;
 }
 
@@ -2542,8 +2626,23 @@ app.addEventListener("paste", (event) => {
 });
 
 app.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.readerModal) {
+    state.readerModal = null;
+    renderApp();
+    return;
+  }
+
   const editor = event.target.closest("[data-rich-editor]");
-  if (!editor || event.key !== "Tab") return;
+  if (!editor) {
+    const readable = event.target.closest("[data-open-reader]");
+    if (readable && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      state.readerModal = readable.dataset.openReader;
+      renderApp();
+    }
+    return;
+  }
+  if (event.key !== "Tab") return;
   event.preventDefault();
   document.execCommand(event.shiftKey ? "outdent" : "insertHTML", false, event.shiftKey ? null : "&emsp;");
   syncRichEditor(editor);
@@ -2594,9 +2693,22 @@ app.addEventListener("change", async (event) => {
 });
 
 app.addEventListener("click", async (event) => {
+  if (event.target.hasAttribute("data-reader-backdrop")) {
+    state.readerModal = null;
+    renderApp();
+    return;
+  }
+
   if (!event.target.closest(".client-picker") && state.clientPickerOpen) {
     state.clientPickerOpen = false;
     refreshClientPicker({ focus: false });
+  }
+
+  const readable = event.target.closest("[data-open-reader]");
+  if (readable && !event.target.closest("button, a, input, select, textarea, [contenteditable='true']")) {
+    state.readerModal = readable.dataset.openReader;
+    renderApp();
+    return;
   }
 
   const target = event.target.closest("button");
@@ -2754,6 +2866,11 @@ app.addEventListener("click", async (event) => {
 
   if (target.dataset.action === "close-modal") {
     state.modalTask = null;
+    renderApp();
+  }
+
+  if (target.dataset.action === "close-reader-modal") {
+    state.readerModal = null;
     renderApp();
   }
 
