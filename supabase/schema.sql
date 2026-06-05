@@ -839,6 +839,8 @@ as $$
   limit 1;
 $$;
 
+drop function if exists public.complete_task(uuid, text, text);
+
 create or replace function public.complete_task(task_id uuid, reflection_text text, reflection_mood text default null)
 returns uuid
 language plpgsql
