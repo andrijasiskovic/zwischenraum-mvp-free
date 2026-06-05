@@ -260,6 +260,16 @@ textarea {
   padding-left: 1.3rem;
 }
 
+.file-field input[type="file"] {
+  min-height: auto;
+  padding: 10px;
+  font-size: 0.9rem;
+}
+
+.file-field small {
+  font-size: 0.8rem;
+}
+
 .rich-preview {
   display: grid;
   gap: 5px;
@@ -649,6 +659,49 @@ select:focus {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
+}
+
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.attachment-chip {
+  max-width: 100%;
+  min-height: 32px;
+  border: 1px solid rgba(223, 221, 213, 0.96);
+  border-radius: 999px;
+  padding: 4px 9px 4px 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #303936;
+  background: color-mix(in srgb, var(--secondary), white 90%);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.attachment-chip span {
+  min-width: 32px;
+  min-height: 22px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  color: white;
+  background: color-mix(in srgb, var(--primary), black 4%);
+  font-size: 0.67rem;
+}
+
+.attachment-chip strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip:hover {
+  border-color: color-mix(in srgb, var(--primary), white 16%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary), transparent 88%);
 }
 
 .reflection-row {
@@ -1667,6 +1720,11 @@ select:focus {
 
   .rich-preview.can-expand:not(.expanded) .rich-preview-content {
     -webkit-line-clamp: 2;
+  }
+
+  .attachment-chip {
+    width: 100%;
+    border-radius: 12px;
   }
 
   .form-grid {

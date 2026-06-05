@@ -19,6 +19,7 @@ const state = {
   clients: [],
   tasks: [],
   reflections: [],
+  attachments: [],
   notes: [],
   templates: [],
   invitations: [],
@@ -309,6 +310,57 @@ function normalizedPasteHtml(event) {
   return textToRichHtml(text);
 }
 
+function renderFileField(label = "Dateien anhängen") {
+  return `
+    <label class="field file-field">
+      <span>${escapeHtml(label)}</span>
+      <input
+        name="attachment_files"
+        type="file"
+        multiple
+        accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
+      />
+      <small class="muted">Bilder, PDFs und gängige Dokumente bis 10 MB pro Datei.</small>
+    </label>
+  `;
+}
+
+function attachmentLabel(attachment) {
+  const size = Number(attachment.file_size || 0);
+  const formattedSize =
+    size >= 1048576 ? `${(size / 1048576).toFixed(1)} MB` : size >= 1024 ? `${Math.round(size / 1024)} KB` : "";
+  return formattedSize ? `${attachment.file_name} · ${formattedSize}` : attachment.file_name;
+}
+
+function renderAttachmentList(attachments = []) {
+  if (!attachments.length) return "";
+  return `
+    <div class="attachment-list" aria-label="Anhänge">
+      ${attachments
+        .map(
+          (attachment) => `
+            <button type="button" class="attachment-chip" data-open-attachment="${attachment.id}">
+              <span>${escapeHtml(fileIcon(attachment.file_type))}</span>
+              <strong>${escapeHtml(attachmentLabel(attachment))}</strong>
+            </button>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function fileIcon(fileType = "") {
+  if (fileType.startsWith("image/")) return "Bild";
+  if (fileType === "application/pdf") return "PDF";
+  return "Datei";
+}
+
+function missingAttachmentSchema(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("task_attachments") || message.includes("task-attachments") || error?.code === "42P01";
+}
+
 function personName(person, fallback = "Unbekannt") {
   const fullName = String(person?.full_name || "").trim();
   if (fullName) return fullName;
@@ -547,7 +599,7 @@ async function loadMemberships() {
 
 async function loadWorkspaceData() {
   const orgId = state.organization.id;
-  const [tasks, relationships, reflections, invitations, notes, templates] = await Promise.all([
+  const [tasks, relationships, reflections, invitations, notes, templates, attachments] = await Promise.all([
     state.supabase
       .from("tasks")
       .select(
@@ -582,15 +634,36 @@ async function loadWorkspaceData() {
       .select("*")
       .eq("organization_id", orgId)
       .order("created_at", { ascending: true }),
+    state.supabase
+      .from("task_attachments")
+      .select("*")
+      .eq("organization_id", orgId)
+      .order("created_at", { ascending: true }),
   ]);
 
   for (const result of [tasks, relationships, reflections, invitations, notes, templates]) {
     if (result.error) throw result.error;
   }
+  if (attachments.error && !missingAttachmentSchema(attachments.error)) {
+    throw attachments.error;
+  }
 
-  state.tasks = tasks.data || [];
+  const attachmentRows = attachments.error ? [] : attachments.data || [];
+  const reflectionRows = (reflections.data || []).map((reflection) => ({
+    ...reflection,
+    attachments: attachmentRows.filter((attachment) => attachment.reflection_id === reflection.id),
+  }));
+  state.tasks = (tasks.data || []).map((task) => ({
+    ...task,
+    attachments: attachmentRows.filter((attachment) => attachment.task_id === task.id && !attachment.reflection_id),
+    reflections: (task.reflections || []).map((reflection) => ({
+      ...reflection,
+      attachments: attachmentRows.filter((attachment) => attachment.reflection_id === reflection.id),
+    })),
+  }));
   state.clients = relationships.data || [];
-  state.reflections = reflections.data || [];
+  state.reflections = reflectionRows;
+  state.attachments = attachmentRows;
   state.invitations = invitations.data || [];
   state.notes = notes.data || [];
   state.templates = templates.data || [];
@@ -1091,6 +1164,7 @@ function renderTask(task) {
         <span class="chip ${statusClass}">${escapeHtml(status)}</span>
       </header>
       ${renderRichPreview(task.description, "Keine Beschreibung", "task-description")}
+      ${renderAttachmentList(task.attachments)}
       <div class="task-meta chips">
         <span class="chip">Fällig ${formatDate(task.due_date)}</span>
         ${task.reflections?.length ? `<span class="chip done">Reflexion vorhanden</span>` : ""}
@@ -1129,6 +1203,7 @@ function renderTaskForm() {
       ${renderRichTextField("description", "Beschreibung", "", {
         placeholder: "Was soll umgesetzt werden?",
       }).replace("data-rich-editor", "data-rich-editor data-task-description")}
+      ${renderFileField("Dateien zur Aufgabe")}
       <label class="field">
         <span>Fälligkeitsdatum</span>
         <input name="due_date" type="date" required value="${todayIso}" />
@@ -1211,6 +1286,7 @@ function renderReflection(reflection) {
           ${reflection.mood ? `<span class="chip">${escapeHtml(reflection.mood)}</span>` : ""}
         </div>
         ${renderRichPreview(reflection.text, "Keine Reflexion", "reflection-text")}
+        ${renderAttachmentList(reflection.attachments)}
         <small class="muted">${escapeHtml(personName(reflection.client, "Client"))}</small>
       </div>
     </article>
@@ -1792,6 +1868,7 @@ function readerData() {
       eyebrow: "Aufgabe",
       title: task.title,
       body: task.description,
+      attachments: task.attachments || [],
       emptyText: "Keine Beschreibung",
       meta: [
         { label: person },
@@ -1809,6 +1886,7 @@ function readerData() {
       eyebrow: "Reflexion",
       title: reflection.tasks?.title || "Reflexion",
       body: reflection.text,
+      attachments: reflection.attachments || [],
       emptyText: "Keine Reflexion",
       meta: [
         reflection.mood ? { label: reflection.mood } : null,
@@ -1824,6 +1902,7 @@ function readerData() {
       eyebrow: "Template",
       title: template.title,
       body: template.description,
+      attachments: [],
       emptyText: "Keine Beschreibung",
       meta: [
         { label: state.preset?.label || "Branche" },
@@ -1854,6 +1933,7 @@ function renderReaderModal() {
         </div>
         <div class="reader-body">
           ${richTextToHtml(data.body) || `<p>${escapeHtml(data.emptyText)}</p>`}
+          ${renderAttachmentList(data.attachments)}
         </div>
       </section>
     </div>
@@ -1868,6 +1948,7 @@ function renderReflectionModal() {
         <h2>${escapeHtml(task.title)}</h2>
         <p class="muted">${escapeHtml(state.preset?.reflection_prompt || "Wie ist es dir damit gegangen?")}</p>
         ${renderRichTextField("text", "Reflexion", "", { required: true })}
+        ${renderFileField("Dateien zur Reflexion")}
         <label class="field">
           <span>Gefühl / Status</span>
           <select name="mood" required>
@@ -2117,6 +2198,7 @@ async function handleSubmit(event) {
   const action = form.dataset.action;
   const values = Object.fromEntries(new FormData(form));
   values.client_ids = new FormData(form).getAll("client_ids");
+  values.attachment_files = new FormData(form).getAll("attachment_files").filter((file) => file?.size > 0);
   state.error = "";
   state.message = "";
 
@@ -2182,10 +2264,84 @@ function clearInviteParams() {
   window.history.replaceState({}, "", url.toString());
 }
 
+async function ensureAttachmentSupport() {
+  const { error } = await state.supabase.from("task_attachments").select("id").limit(1);
+  if (error) {
+    throw new Error(
+      "Dateiupload ist vorbereitet, aber das neue Supabase-SQL muss noch ausgeführt werden. Bitte zuerst supabase/schema.sql im SQL Editor ausführen.",
+    );
+  }
+}
+
+function safeFileName(name = "datei") {
+  const cleaned = String(name || "datei")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+  return cleaned || "datei";
+}
+
+async function uploadAttachments(files = [], taskId, reflectionId = null) {
+  if (!files.length) return;
+  const maxFileSize = 10 * 1024 * 1024;
+
+  for (const [index, file] of files.entries()) {
+    if (file.size > maxFileSize) {
+      throw new Error(`${file.name} ist größer als 10 MB.`);
+    }
+
+    const path = [
+      state.organization.id,
+      taskId,
+      reflectionId || "task",
+      `${Date.now()}-${index}-${safeFileName(file.name)}`,
+    ].join("/");
+
+    const { error: uploadError } = await state.supabase.storage.from("task-attachments").upload(path, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || "application/octet-stream",
+    });
+    if (uploadError) throw uploadError;
+
+    const { error: insertError } = await state.supabase.from("task_attachments").insert({
+      organization_id: state.organization.id,
+      task_id: taskId,
+      reflection_id: reflectionId,
+      uploaded_by: state.session.user.id,
+      file_name: file.name,
+      file_type: file.type || "application/octet-stream",
+      file_size: file.size,
+      storage_path: path,
+    });
+    if (insertError) throw insertError;
+  }
+}
+
+async function openAttachment(attachmentId) {
+  const attachment = state.attachments.find((item) => item.id === attachmentId);
+  if (!attachment) return;
+
+  const { data, error } = await state.supabase.storage
+    .from("task-attachments")
+    .createSignedUrl(attachment.storage_path, 60 * 5, {
+      download: attachment.file_name,
+    });
+  if (error) throw error;
+  window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+}
+
 async function createTask(values) {
   const clientIds = values.client_ids || [];
+  const files = values.attachment_files || [];
   if (!clientIds.length) {
     throw new Error("Bitte mindestens einen Client auswählen.");
+  }
+
+  if (files.length) {
+    await ensureAttachmentSupport();
   }
 
   const rows = clientIds.map((clientId) => ({
@@ -2197,8 +2353,13 @@ async function createTask(values) {
     due_date: values.due_date,
   }));
 
-  const { error } = await state.supabase.from("tasks").insert(rows);
+  const { data: createdTasks, error } = await state.supabase.from("tasks").insert(rows).select("*");
   if (error) throw error;
+  if (files.length) {
+    for (const task of createdTasks || []) {
+      await uploadAttachments(files, task.id);
+    }
+  }
   state.message =
     clientIds.length === 1
       ? "Aufgabe wurde erstellt."
@@ -2541,16 +2702,27 @@ async function removeClient(clientId, clientName) {
 }
 
 async function completeTask(values) {
+  const files = values.attachment_files || [];
   if (!values.text || !values.mood) {
     throw new Error("Bitte Reflexion und Status ausfüllen.");
   }
 
-  const { error } = await state.supabase.rpc("complete_task", {
+  if (files.length) {
+    await ensureAttachmentSupport();
+  }
+
+  const { data: reflectionId, error } = await state.supabase.rpc("complete_task", {
     task_id: state.modalTask.id,
     reflection_text: richTextToHtml(values.text),
     reflection_mood: values.mood,
   });
   if (error) throw error;
+  if (files.length) {
+    if (!reflectionId) {
+      throw new Error("Die Aufgabe wurde abgeschlossen, aber die Reflexions-ID fehlt. Bitte Supabase-SQL aktualisieren.");
+    }
+    await uploadAttachments(files, state.modalTask.id, reflectionId);
+  }
   state.modalTask = null;
   state.message = "Aufgabe abgeschlossen.";
   await loadWorkspaceData();
@@ -2729,6 +2901,16 @@ app.addEventListener("click", async (event) => {
     const preview = target.closest("[data-rich-preview]");
     const expanded = preview?.classList.toggle("expanded");
     target.textContent = expanded ? "Weniger anzeigen" : "Mehr anzeigen";
+    return;
+  }
+
+  if (target.dataset.openAttachment) {
+    try {
+      await openAttachment(target.dataset.openAttachment);
+    } catch (error) {
+      state.error = error.message;
+      renderApp();
+    }
     return;
   }
 

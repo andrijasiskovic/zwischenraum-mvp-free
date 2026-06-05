@@ -131,6 +131,22 @@ create table if not exists public.reflections (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.task_attachments (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  task_id uuid not null references public.tasks(id) on delete cascade,
+  reflection_id uuid references public.reflections(id) on delete cascade,
+  uploaded_by uuid not null references public.profiles(id) on delete cascade,
+  file_name text not null,
+  file_type text not null default 'application/octet-stream',
+  file_size bigint not null default 0,
+  storage_path text not null unique,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists task_attachments_task_idx on public.task_attachments(task_id);
+create index if not exists task_attachments_reflection_idx on public.task_attachments(reflection_id);
+
 create table if not exists public.coach_notes (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -282,6 +298,7 @@ alter table public.invitations enable row level security;
 alter table public.coach_client_relationships enable row level security;
 alter table public.tasks enable row level security;
 alter table public.reflections enable row level security;
+alter table public.task_attachments enable row level security;
 alter table public.coach_notes enable row level security;
 alter table public.task_templates enable row level security;
 
@@ -415,6 +432,56 @@ drop policy if exists "clients create own reflections" on public.reflections;
 create policy "clients create own reflections" on public.reflections
 for insert to authenticated with check (client_id = auth.uid());
 
+drop policy if exists "attachments visible in task scope" on public.task_attachments;
+create policy "attachments visible in task scope" on public.task_attachments
+for select to authenticated using (
+  exists (
+    select 1
+    from public.tasks
+    where tasks.id = task_attachments.task_id
+      and tasks.organization_id = task_attachments.organization_id
+      and (
+        tasks.client_id = auth.uid()
+        or tasks.coach_id = auth.uid()
+        or public.has_org_role(tasks.organization_id, array['owner']::public.member_role[])
+        or public.is_assigned_coach(tasks.organization_id, tasks.client_id)
+      )
+  )
+);
+
+drop policy if exists "members create attachments in allowed task scope" on public.task_attachments;
+create policy "members create attachments in allowed task scope" on public.task_attachments
+for insert to authenticated with check (
+  uploaded_by = auth.uid()
+  and exists (
+    select 1
+    from public.tasks
+    where tasks.id = task_attachments.task_id
+      and tasks.organization_id = task_attachments.organization_id
+      and (
+        (
+          task_attachments.reflection_id is null
+          and (
+            tasks.coach_id = auth.uid()
+            or public.has_org_role(tasks.organization_id, array['owner']::public.member_role[])
+            or public.is_assigned_coach(tasks.organization_id, tasks.client_id)
+          )
+        )
+        or (
+          task_attachments.reflection_id is not null
+          and tasks.client_id = auth.uid()
+          and exists (
+            select 1
+            from public.reflections
+            where reflections.id = task_attachments.reflection_id
+              and reflections.task_id = tasks.id
+              and reflections.client_id = auth.uid()
+          )
+        )
+      )
+  )
+);
+
 drop policy if exists "coach notes visible only to owning coach" on public.coach_notes;
 create policy "coach notes visible only to owning coach" on public.coach_notes
 for select to authenticated using (coach_id = auth.uid());
@@ -450,6 +517,7 @@ grant select on public.invitations to authenticated;
 grant select on public.coach_client_relationships to authenticated;
 grant select, insert, update on public.tasks to authenticated;
 grant select, insert on public.reflections to authenticated;
+grant select, insert on public.task_attachments to authenticated;
 grant select, insert on public.coach_notes to authenticated;
 grant select, insert, update, delete on public.task_templates to authenticated;
 
@@ -478,6 +546,33 @@ drop policy if exists "authenticated users update own brand assets" on storage.o
 create policy "authenticated users update own brand assets" on storage.objects
 for update to authenticated using (bucket_id = 'brand-assets')
 with check (bucket_id = 'brand-assets');
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'task-attachments',
+  'task-attachments',
+  false,
+  10485760,
+  null
+)
+on conflict (id) do update
+set public = excluded.public,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "task attachment objects readable by org members" on storage.objects;
+create policy "task attachment objects readable by org members" on storage.objects
+for select to authenticated using (
+  bucket_id = 'task-attachments'
+  and public.is_org_member(((storage.foldername(name))[1])::uuid)
+);
+
+drop policy if exists "task attachment objects uploadable by org members" on storage.objects;
+create policy "task attachment objects uploadable by org members" on storage.objects
+for insert to authenticated with check (
+  bucket_id = 'task-attachments'
+  and public.is_org_member(((storage.foldername(name))[1])::uuid)
+);
 
 create or replace function public.ensure_profile(user_name text default '')
 returns public.profiles
@@ -745,13 +840,14 @@ as $$
 $$;
 
 create or replace function public.complete_task(task_id uuid, reflection_text text, reflection_mood text default null)
-returns void
+returns uuid
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
   task_row public.tasks;
+  new_reflection_id uuid;
 begin
   select * into task_row
   from public.tasks
@@ -770,7 +866,10 @@ begin
   where id = task_id and client_id = auth.uid();
 
   insert into public.reflections (task_id, organization_id, client_id, text, mood)
-  values (task_id, task_row.organization_id, auth.uid(), reflection_text, reflection_mood);
+  values (task_id, task_row.organization_id, auth.uid(), reflection_text, reflection_mood)
+  returning id into new_reflection_id;
+
+  return new_reflection_id;
 end;
 $$;
 
