@@ -656,22 +656,7 @@ select:focus {
 }
 
 .compact-group-card {
-  cursor: pointer;
-  transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    transform 0.16s ease;
-}
-
-.compact-group-card:hover,
-.compact-group-card:focus-visible {
-  border-color: color-mix(in srgb, var(--primary), white 24%);
-  box-shadow: 0 9px 24px rgba(24, 33, 31, 0.08);
-  outline: none;
-}
-
-.compact-group-card:active {
-  transform: scale(0.995);
+  cursor: default;
 }
 
 .compact-group-main {

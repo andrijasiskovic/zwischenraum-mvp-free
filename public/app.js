@@ -1666,7 +1666,7 @@ function renderGroupCard(group) {
   const batches = groupBatches(group.id).slice(0, 4);
 
   return `
-    <article class="group-card compact-group-card" data-edit-group-card="${group.id}" role="button" tabindex="0">
+    <article class="group-card compact-group-card">
       <div class="compact-group-main">
         <div>
           <h3>${escapeHtml(group.name)}</h3>
@@ -3868,12 +3868,6 @@ app.addEventListener("click", async (event) => {
   if (readable && !event.target.closest("button, a, input, select, textarea, [contenteditable='true']")) {
     state.readerModal = readable.dataset.openReader;
     renderApp();
-    return;
-  }
-
-  const groupCard = event.target.closest("[data-edit-group-card]");
-  if (groupCard && !event.target.closest("button, a, input, select, textarea, [contenteditable='true']")) {
-    openGroupEditor(groupCard.dataset.editGroupCard);
     return;
   }
 
