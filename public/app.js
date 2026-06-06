@@ -1518,6 +1518,7 @@ function renderClientProfile() {
   const overdueTasks = clientTasks.filter(isOverdue);
   const doneTasks = clientTasks.filter((task) => task.status === "done");
   const clientNotes = state.notes.filter((note) => note.client_id === relationship.client_id);
+  const completionRate = clientTasks.length ? Math.round((doneTasks.length / clientTasks.length) * 100) : 0;
 
   return `
     <section class="grid two">
@@ -1531,11 +1532,12 @@ function renderClientProfile() {
             <button class="btn" data-view="clients">Zurück</button>
             <button class="btn danger" data-remove-client="${relationship.client_id}" data-client-name="${escapeHtml(personName(client, "Client"))}">Client entfernen</button>
           </div>
-          <div class="grid metrics">
+          <div class="grid metrics client-profile-metrics">
             ${metricCard("Offen", openTasks.length)}
             ${metricCard("Überfällig", overdueTasks.length)}
             ${metricCard("Erledigt", doneTasks.length)}
             ${metricCard("Gesamt", clientTasks.length)}
+            ${metricCard("Umsetzung", `${completionRate}%`)}
           </div>
         </article>
         ${renderTaskGroup("Überfällige Aufgaben", overdueTasks)}
@@ -1988,6 +1990,10 @@ function readerData() {
     const person = isCoachRole() ? personName(task.client, "Client") : personName(task.coach, "Coach");
     const status = task.status === "done" ? "Erledigt" : isOverdue(task) ? "Überfällig" : "Offen";
     const statusClass = task.status === "done" ? "done" : isOverdue(task) ? "overdue" : "";
+    const personMeta =
+      isCoachRole() && task.client_id
+        ? { label: person, clientId: task.client_id, className: "clickable" }
+        : { label: person };
     return {
       eyebrow: "Aufgabe",
       title: task.title,
@@ -1995,7 +2001,7 @@ function readerData() {
       attachments: task.attachments || [],
       emptyText: "Keine Beschreibung",
       meta: [
-        { label: person },
+        personMeta,
         { label: status, className: statusClass },
         { label: `Fällig ${formatDate(task.due_date)}` },
         task.reflections?.length ? { label: "Reflexion vorhanden", className: "done" } : null,
@@ -2038,6 +2044,14 @@ function readerData() {
   return null;
 }
 
+function renderReaderMeta(item) {
+  const classes = `chip ${item.className || ""}`.trim();
+  if (item.clientId) {
+    return `<button class="${classes}" data-reader-client-profile="${escapeHtml(item.clientId)}">${escapeHtml(item.label)}</button>`;
+  }
+  return `<span class="${classes}">${escapeHtml(item.label)}</span>`;
+}
+
 function renderReaderModal() {
   const data = readerData();
   if (!data) return "";
@@ -2053,7 +2067,7 @@ function renderReaderModal() {
           <button class="icon-btn" data-action="close-reader-modal" aria-label="Leseansicht schließen">×</button>
         </header>
         <div class="chips reader-meta">
-          ${data.meta.map((item) => `<span class="chip ${item.className || ""}">${escapeHtml(item.label)}</span>`).join("")}
+          ${data.meta.map(renderReaderMeta).join("")}
         </div>
         <div class="reader-body">
           ${richTextToHtml(data.body) || `<p>${escapeHtml(data.emptyText)}</p>`}
@@ -3191,6 +3205,13 @@ app.addEventListener("click", async (event) => {
 
   if (target.dataset.clientProfile) {
     state.selectedClientId = target.dataset.clientProfile;
+    state.view = "clientProfile";
+    renderApp();
+  }
+
+  if (target.dataset.readerClientProfile) {
+    state.selectedClientId = target.dataset.readerClientProfile;
+    state.readerModal = null;
     state.view = "clientProfile";
     renderApp();
   }

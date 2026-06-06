@@ -548,6 +548,10 @@ select:focus {
   gap: 12px;
 }
 
+.grid.metrics.client-profile-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+}
+
 .grid.two {
   grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
   align-items: start;
@@ -888,6 +892,23 @@ select:focus {
 .mini-stat.overdue {
   background: color-mix(in srgb, var(--warn), white 84%);
   color: color-mix(in srgb, var(--warn), black 28%);
+}
+
+.chip.clickable {
+  border: 1px solid color-mix(in srgb, var(--primary), white 72%);
+  color: color-mix(in srgb, var(--primary), black 18%);
+  background: color-mix(in srgb, var(--primary), white 90%);
+}
+
+button.chip.clickable {
+  min-height: 0;
+  width: auto;
+  cursor: pointer;
+}
+
+button.chip.clickable:hover {
+  border-color: color-mix(in srgb, var(--primary), white 28%);
+  background: color-mix(in srgb, var(--primary), white 84%);
 }
 
 .invite-delivery {
