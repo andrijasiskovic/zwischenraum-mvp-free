@@ -2531,32 +2531,80 @@ function buildInviteUrl(code, email, role = "") {
   return url.toString();
 }
 
-function openInviteEmail(email, code, inviteUrl) {
-  const { subject, body } = inviteMessage(email, code, inviteUrl);
-  window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+function openInviteEmail(invite) {
+  const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role);
+  const { subject, body } = inviteMessage(invite, inviteUrl);
+  window.location.href = `mailto:${encodeURIComponent(invite.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
-function inviteMessage(email, code, inviteUrl) {
+function inviteOpeningLine(invite) {
+  if (invite.role !== "client") {
+    return "Moment:um hilft dir dabei, deine Clients zwischen Terminen strukturiert zu begleiten: mit Aufgaben, Reflexionen, Erinnerungen und einem klaren Überblick über Fortschritte.";
+  }
+
+  const texts = {
+    generic_coaching:
+      "Hier bekommst du kleine Aufgaben und Impulse für die Zeit zwischen euren Gesprächen. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
+    psychotherapy:
+      "Hier bekommst du Übungen und Reflexionsimpulse für die Zeit zwischen den Sitzungen. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
+    physiotherapy:
+      "Hier bekommst du Heimübungen und kurze Rückfragen für die Zeit zwischen deinen Terminen. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
+    football:
+      "Hier bekommst du Trainingsaufgaben und Wochenziele für die Zeit zwischen den Trainings. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
+    dog_training:
+      "Hier bekommst du Trainingspläne und Beobachtungsaufgaben für den Alltag mit deinem Hund. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
+    nutrition:
+      "Hier bekommst du Ernährungsziele und kleine Gewohnheitsimpulse für die Zeit zwischen den Terminen. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
+  };
+
+  return texts[state.organization?.industry_preset_id] || texts.generic_coaching;
+}
+
+function inviteEmoji(invite) {
+  if (invite.role !== "client") return "";
   return {
-    email,
+    generic_coaching: " 💬",
+    psychotherapy: " 🌿",
+    physiotherapy: " 🧘",
+    football: " ⚽",
+    dog_training: " 🐾",
+    nutrition: " 🥗",
+  }[state.organization?.industry_preset_id] || " 💬";
+}
+
+function inviteMessage(invite, inviteUrl) {
+  const isClientInvite = invite.role === "client";
+  const accessLine = isClientInvite
+    ? "Nach dem Öffnen des Links kannst du deinen Zugang erstellen."
+    : "Beim Erstellen deines Zugangs legst du Name, Passwort, Firmenname und Branche fest. Danach bekommst du deinen eigenen Workspace.";
+
+  return {
+    email: invite.email,
     subject: "Einladung zu Moment:um",
     body: [
-    "Hallo,",
-    "",
-    "du wurdest zu Moment:um eingeladen.",
-    "",
-    `Bitte öffne diesen Link: ${inviteUrl}`,
-    "",
-    `Dein Einladungscode lautet: ${code}`,
-    "",
-    "Nach dem Öffnen des Links kannst du Vorname, Nachname und Passwort festlegen.",
+      "Hallo,",
+      "",
+      `du wurdest zu Moment:um eingeladen.${inviteEmoji(invite)}`,
+      "",
+      inviteOpeningLine(invite),
+      "",
+      `Bitte öffne diesen Link: ${inviteUrl}`,
+      "",
+      `Dein Einladungscode lautet: ${invite.code}`,
+      "",
+      accessLine,
+      "",
+      "Nimm das Moment:um mit! Die wichtigsten Fortschritte entstehen zwischen den Sessions.",
+      "",
+      "Liebe Grüße",
+      "Das Moment:um Team",
     ].join("\n"),
   };
 }
 
 function openWebmail(provider, invite) {
   const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role);
-  const { subject, body } = inviteMessage(invite.email, invite.code, inviteUrl);
+  const { subject, body } = inviteMessage(invite, inviteUrl);
   const encoded = {
     to: encodeURIComponent(invite.email),
     subject: encodeURIComponent(subject),
@@ -2580,7 +2628,7 @@ function openWebmail(provider, invite) {
 
 async function copyInvite(invite, silent = false) {
   const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role);
-  const { subject, body } = inviteMessage(invite.email, invite.code, inviteUrl);
+  const { subject, body } = inviteMessage(invite, inviteUrl);
   const text = `An: ${invite.email}\nBetreff: ${subject}\n\n${body}`;
 
   try {
@@ -2596,7 +2644,7 @@ async function copyInvite(invite, silent = false) {
 
 async function shareInvite(invite) {
   const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role);
-  const { subject, body } = inviteMessage(invite.email, invite.code, inviteUrl);
+  const { subject, body } = inviteMessage(invite, inviteUrl);
   const text = `An: ${invite.email}\n\n${body}`;
 
   if (navigator.share) {
@@ -3170,7 +3218,7 @@ app.addEventListener("click", async (event) => {
   if (target.dataset.mailInvite) {
     const invite = state.invitations.find((item) => item.id === target.dataset.mailInvite);
     if (invite) {
-      openInviteEmail(invite.email, invite.code, buildInviteUrl(invite.code, invite.email, invite.role));
+      openInviteEmail(invite);
     }
   }
 
