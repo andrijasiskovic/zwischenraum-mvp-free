@@ -1427,8 +1427,8 @@ function renderTaskGroupPicker() {
       </div>
       ${hiddenGroupInputs}
       <label class="field">
-        <span>Gruppe hinzufügen</span>
-        <select data-task-group-select ${availableGroups.length ? "" : "disabled"}>
+        <span>Gruppe auswählen</span>
+        <select name="group_ids" data-task-group-select ${availableGroups.length ? "" : "disabled"}>
           <option value="">Gruppe auswählen</option>
           ${availableGroups
             .map((group) => {
@@ -1440,7 +1440,6 @@ function renderTaskGroupPicker() {
             .join("")}
         </select>
       </label>
-      <button class="btn small" type="button" data-add-task-group ${availableGroups.length ? "" : "disabled"}>Gruppe hinzufügen</button>
     </div>
   `;
 }
@@ -2757,7 +2756,7 @@ async function openAttachment(attachmentId) {
 }
 
 async function createTask(values) {
-  const selectedGroupIds = [...new Set(values.group_ids || [])];
+  const selectedGroupIds = [...new Set(values.group_ids || [])].filter(Boolean);
   const groupClientIds = selectedGroupIds.flatMap((groupId) => {
     const members = groupMembers(groupId);
     if (members.length < 2) {
@@ -2766,10 +2765,11 @@ async function createTask(values) {
     }
     return members.map((member) => member.client_id);
   });
-  const clientIds = [...new Set([...(values.client_ids || []), ...groupClientIds])];
+  const directClientIds = (values.client_ids || []).filter(Boolean);
+  const clientIds = [...new Set([...directClientIds, ...groupClientIds])];
   const files = values.attachment_files || [];
   if (!clientIds.length) {
-    throw new Error("Bitte mindestens einen Client auswählen.");
+    throw new Error("Bitte mindestens einen Client oder eine Gruppe auswählen.");
   }
 
   if (files.length) {
@@ -3565,6 +3565,22 @@ app.addEventListener("change", async (event) => {
     return;
   }
 
+  const groupSelect = event.target.closest("[data-task-group-select]");
+  if (groupSelect) {
+    const groupId = groupSelect.value || "";
+    if (groupId) {
+      const members = groupMembers(groupId);
+      if (members.length < 2) {
+        state.error = "Diese Gruppe braucht mindestens zwei Personen.";
+        renderApp();
+        return;
+      }
+      state.selectedTaskGroupIds = [...new Set([...state.selectedTaskGroupIds, groupId])];
+      refreshTaskGroupPicker();
+    }
+    return;
+  }
+
   const select = event.target.closest("[data-template-select]");
   if (!select) return;
 
@@ -3695,21 +3711,6 @@ app.addEventListener("click", async (event) => {
     );
     state.clientPickerOpen = true;
     refreshClientPicker();
-  }
-
-  if (target.dataset.addTaskGroup !== undefined) {
-    const select = document.querySelector("[data-task-group-select]");
-    const groupId = select?.value || "";
-    if (groupId) {
-      const members = groupMembers(groupId);
-      if (members.length < 2) {
-        state.error = "Diese Gruppe braucht mindestens zwei Personen.";
-        renderApp();
-        return;
-      }
-      state.selectedTaskGroupIds = [...new Set([...state.selectedTaskGroupIds, groupId])];
-      refreshTaskGroupPicker();
-    }
   }
 
   if (target.dataset.unselectTaskGroup) {
