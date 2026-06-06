@@ -1740,6 +1740,14 @@ function renderReminderModal() {
           <button class="btn" data-action="close-reminder-modal">Schließen</button>
         </div>
         <div class="delivery-grid">
+          <button class="delivery-card preferred" data-share-reminder="${row.clientId}">
+            <strong>Teilen</strong>
+            <span>Handy-Menü für Mail, WhatsApp oder andere Apps öffnen</span>
+          </button>
+          <button class="delivery-card" data-mail-reminder="${row.clientId}">
+            <strong>Mail-App</strong>
+            <span>Standard-Mailprogramm öffnen</span>
+          </button>
           ${reminderButton("gmail", row.clientId, "Gmail", "Entwurf in Gmail öffnen")}
           ${reminderButton("outlook", row.clientId, "Outlook", "Entwurf in Outlook Web öffnen")}
           ${reminderButton("gmx", row.clientId, "GMX", "Text kopieren und GMX öffnen")}
@@ -2631,6 +2639,11 @@ function reminderMessage(row) {
   };
 }
 
+function openReminderEmail(row) {
+  const { subject, body } = reminderMessage(row);
+  window.location.href = `mailto:${encodeURIComponent(row.clientEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 function openReminderWebmail(provider, row) {
   const { subject, body } = reminderMessage(row);
   const encoded = {
@@ -2652,6 +2665,25 @@ function openReminderWebmail(provider, row) {
   }
 
   window.open(urls[provider], "_blank", "noopener,noreferrer");
+}
+
+async function shareReminder(row) {
+  const { subject, body } = reminderMessage(row);
+  const text = `An: ${row.clientEmail}\n\n${body}`;
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: subject,
+        text,
+      });
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
+  }
+
+  await copyReminder(row);
 }
 
 async function copyReminder(row, silent = false) {
@@ -3178,6 +3210,20 @@ app.addEventListener("click", async (event) => {
     const row = reminderRows().find((item) => item.clientId === target.dataset.clientId);
     if (row) {
       openReminderWebmail(target.dataset.reminderWebmail, row);
+    }
+  }
+
+  if (target.dataset.mailReminder) {
+    const row = reminderRows().find((item) => item.clientId === target.dataset.mailReminder);
+    if (row) {
+      openReminderEmail(row);
+    }
+  }
+
+  if (target.dataset.shareReminder) {
+    const row = reminderRows().find((item) => item.clientId === target.dataset.shareReminder);
+    if (row) {
+      await shareReminder(row);
     }
   }
 
