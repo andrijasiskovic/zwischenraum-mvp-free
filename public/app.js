@@ -20,7 +20,10 @@ const state = {
   clients: [],
   groups: [],
   groupMembers: [],
+  taskBatches: [],
+  batchRecipients: [],
   groupSchemaMissing: false,
+  batchSchemaMissing: false,
   organizationMembers: [],
   tasks: [],
   reflections: [],
@@ -41,6 +44,7 @@ const state = {
   modalTask: null,
   readerModal: null,
   groupEditor: null,
+  batchModalId: "",
   lastInviteId: "",
   inviteModalId: "",
   editingTemplateId: "",
@@ -373,6 +377,17 @@ function missingGroupSchema(error) {
   return message.includes("client_groups") || message.includes("client_group_members") || error?.code === "42P01";
 }
 
+function missingBatchSchema(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("assignment_batches") ||
+    message.includes("assignment_batch_recipients") ||
+    message.includes("assignment_batch_id") ||
+    error?.code === "42P01" ||
+    error?.code === "42703"
+  );
+}
+
 function personName(person, fallback = "Unbekannt") {
   const fullName = String(person?.full_name || "").trim();
   if (fullName) return fullName;
@@ -422,6 +437,7 @@ function resetNavigationState() {
   state.modalTask = null;
   state.readerModal = null;
   state.groupEditor = null;
+  state.batchModalId = "";
   state.lastInviteId = "";
   state.inviteModalId = "";
   state.editingTemplateId = "";
@@ -674,6 +690,8 @@ async function loadWorkspaceData() {
     relationships,
     groups,
     groupMembers,
+    taskBatches,
+    batchRecipients,
     orgMembers,
     reflections,
     invitations,
@@ -694,6 +712,20 @@ async function loadWorkspaceData() {
       ? state.supabase
           .from("client_group_members")
           .select("*, client:profiles!client_group_members_client_id_fkey(id, full_name, email, contact_email, phone)")
+          .eq("organization_id", orgId)
+          .order("created_at", { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
+    isCoachRole()
+      ? state.supabase
+          .from("assignment_batches")
+          .select("*")
+          .eq("organization_id", orgId)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
+    isCoachRole()
+      ? state.supabase
+          .from("assignment_batch_recipients")
+          .select("*, client:profiles!assignment_batch_recipients_client_id_fkey(id, full_name, email, contact_email, phone)")
           .eq("organization_id", orgId)
           .order("created_at", { ascending: true })
       : Promise.resolve({ data: [], error: null }),
@@ -731,14 +763,28 @@ async function loadWorkspaceData() {
       .order("created_at", { ascending: true }),
   ]);
 
-  for (const result of [tasks, relationships, orgMembers, reflections, invitations, notes, templates]) {
+  for (const result of [relationships, orgMembers, reflections, invitations, notes, templates]) {
     if (result.error) throw result.error;
   }
   state.groupSchemaMissing = Boolean(
     (groups.error && missingGroupSchema(groups.error)) || (groupMembers.error && missingGroupSchema(groupMembers.error)),
   );
+  state.batchSchemaMissing = Boolean(
+    (taskBatches.error && missingBatchSchema(taskBatches.error)) ||
+      (batchRecipients.error && missingBatchSchema(batchRecipients.error)) ||
+      (tasks.error && missingBatchSchema(tasks.error)),
+  );
+  if (tasks.error && !missingBatchSchema(tasks.error)) {
+    throw tasks.error;
+  }
   if ((groups.error && !missingGroupSchema(groups.error)) || (groupMembers.error && !missingGroupSchema(groupMembers.error))) {
     throw groups.error || groupMembers.error;
+  }
+  if (
+    (taskBatches.error && !missingBatchSchema(taskBatches.error)) ||
+    (batchRecipients.error && !missingBatchSchema(batchRecipients.error))
+  ) {
+    throw taskBatches.error || batchRecipients.error;
   }
   if (attachments.error && !missingAttachmentSchema(attachments.error)) {
     throw attachments.error;
@@ -749,7 +795,8 @@ async function loadWorkspaceData() {
     ...reflection,
     attachments: attachmentRows.filter((attachment) => attachment.reflection_id === reflection.id),
   }));
-  state.tasks = (tasks.data || []).map((task) => ({
+  const taskRows = tasks.error ? [] : tasks.data || [];
+  state.tasks = taskRows.map((task) => ({
     ...task,
     attachments: attachmentRows.filter((attachment) => attachment.task_id === task.id && !attachment.reflection_id),
     reflections: (task.reflections || []).map((reflection) => ({
@@ -767,6 +814,16 @@ async function loadWorkspaceData() {
   state.groupMembers = groupMemberRows.filter(
     (member) => visibleGroupIds.has(member.group_id) && activeWorkspaceClientIds.has(member.client_id),
   );
+  state.taskBatches = state.batchSchemaMissing ? [] : taskBatches.data || [];
+  const visibleBatchIds = new Set(state.taskBatches.map((batch) => batch.id));
+  state.batchRecipients = state.batchSchemaMissing
+    ? []
+    : (batchRecipients.data || []).filter(
+        (recipient) =>
+          visibleBatchIds.has(recipient.batch_id) &&
+          visibleGroupIds.has(recipient.group_id) &&
+          activeWorkspaceClientIds.has(recipient.client_id),
+      );
   state.reflections = reflectionRows;
   state.attachments = attachmentRows;
   state.invitations = invitations.data || [];
@@ -1054,6 +1111,7 @@ function renderApp() {
       ${state.modalTask ? renderReflectionModal() : ""}
       ${state.readerModal ? renderReaderModal() : ""}
       ${state.groupEditor ? renderGroupModal() : ""}
+      ${state.batchModalId ? renderBatchModal() : ""}
       ${state.inviteModalId ? renderInviteModal() : ""}
       ${state.reminderModalClientId ? renderReminderModal() : ""}
     </div>
@@ -1605,6 +1663,7 @@ function groupMembers(groupId) {
 
 function renderGroupCard(group) {
   const members = groupMembers(group.id);
+  const batches = groupBatches(group.id).slice(0, 4);
 
   return `
     <article class="group-card compact-group-card" data-edit-group-card="${group.id}" role="button" tabindex="0">
@@ -1619,7 +1678,66 @@ function renderGroupCard(group) {
           <button class="btn small subtle-danger" data-delete-group="${group.id}" data-group-name="${escapeHtml(group.name)}">Löschen</button>
         </div>
       </div>
+      <div class="group-batch-list">
+        <div class="compact-section-head">
+          <strong>Aktuelle Gruppenaufgaben</strong>
+          ${state.batchSchemaMissing ? `<small class="muted">SQL-Update nötig</small>` : ""}
+        </div>
+        ${
+          state.batchSchemaMissing
+            ? `<p class="muted">Bitte führe die aktualisierte Datei <code>supabase/schema.sql</code> aus, damit neue Gruppenaufgaben hier mit Fortschritt angezeigt werden.</p>`
+            : batches.length
+              ? batches.map((batch) => renderGroupBatchRow(group.id, batch)).join("")
+              : `<p class="muted">Noch keine Gruppenaufgaben für diese Gruppe.</p>`
+        }
+      </div>
     </article>
+  `;
+}
+
+function groupBatches(groupId) {
+  const batchIds = new Set(state.batchRecipients.filter((recipient) => recipient.group_id === groupId).map((recipient) => recipient.batch_id));
+  return state.taskBatches.filter((batch) => batchIds.has(batch.id));
+}
+
+function groupBatchRecipients(groupId, batchId) {
+  return state.batchRecipients.filter((recipient) => recipient.group_id === groupId && recipient.batch_id === batchId);
+}
+
+function taskForBatchClient(batchId, clientId) {
+  return state.tasks.find((task) => task.assignment_batch_id === batchId && task.client_id === clientId);
+}
+
+function groupBatchStats(groupId, batchId) {
+  const recipients = groupBatchRecipients(groupId, batchId);
+  const rows = recipients.map((recipient) => ({
+    recipient,
+    task: taskForBatchClient(batchId, recipient.client_id),
+  }));
+  const done = rows.filter((row) => row.task?.status === "done").length;
+  const overdue = rows.filter((row) => row.task && isOverdue(row.task)).length;
+  const open = rows.filter((row) => row.task?.status === "open" && !isOverdue(row.task)).length;
+  const total = rows.length;
+  const rate = total ? Math.round((done / total) * 100) : 0;
+  return { rows, done, overdue, open, total, rate };
+}
+
+function renderGroupBatchRow(groupId, batch) {
+  const stats = groupBatchStats(groupId, batch.id);
+  return `
+    <button class="group-batch-row" type="button" data-open-batch="${batch.id}" data-batch-group="${groupId}">
+      <span>
+        <strong>${escapeHtml(batch.title)}</strong>
+        <small>Fällig ${formatDate(batch.due_date)}</small>
+      </span>
+      <span class="group-batch-progress">
+        <span>${stats.done}/${stats.total} erledigt · ${stats.rate}%</span>
+        <i style="--progress:${stats.rate}%"></i>
+      </span>
+      <span class="group-batch-mini">
+        ${stats.open} offen · ${stats.overdue} überfällig
+      </span>
+    </button>
   `;
 }
 
@@ -1654,6 +1772,88 @@ function renderGroupModal() {
     <div class="modal" data-group-backdrop>
       ${renderGroupModalCard()}
     </div>
+  `;
+}
+
+function renderBatchModal() {
+  const [batchId, groupId] = String(state.batchModalId || "").split(":");
+  const batch = state.taskBatches.find((item) => item.id === batchId);
+  const group = state.groups.find((item) => item.id === groupId);
+  if (!batch || !group) return "";
+  const stats = groupBatchStats(groupId, batchId);
+  const doneRows = stats.rows.filter((row) => row.task?.status === "done");
+  const overdueRows = stats.rows.filter((row) => row.task && isOverdue(row.task));
+  const openRows = stats.rows.filter((row) => row.task?.status === "open" && !isOverdue(row.task));
+
+  return `
+    <div class="modal" data-batch-backdrop>
+      <section class="panel modal-card batch-modal-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(batch.title)}">
+        <header class="reader-head">
+          <div>
+            <span class="reader-eyebrow">${escapeHtml(group.name)}</span>
+            <h2>${escapeHtml(batch.title)}</h2>
+          </div>
+          <button class="btn small" data-action="close-batch-modal">Schließen</button>
+        </header>
+        <div class="batch-summary">
+          <article>
+            <span>Erledigt</span>
+            <strong>${stats.done}/${stats.total}</strong>
+          </article>
+          <article>
+            <span>Offen</span>
+            <strong>${stats.open}</strong>
+          </article>
+          <article>
+            <span>Überfällig</span>
+            <strong>${stats.overdue}</strong>
+          </article>
+          <article>
+            <span>Umsetzung</span>
+            <strong>${stats.rate}%</strong>
+          </article>
+        </div>
+        <div class="batch-modal-body">
+          ${renderBatchPersonSection("Überfällig", overdueRows, "overdue")}
+          ${renderBatchPersonSection("Offen", openRows, "")}
+          ${renderBatchPersonSection("Erledigt", doneRows, "done")}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderBatchPersonSection(title, rows, statusClass) {
+  return `
+    <section class="batch-person-section">
+      <h3>${escapeHtml(title)} <span>${rows.length}</span></h3>
+      <div class="batch-person-list">
+        ${
+          rows.length
+            ? rows.map((row) => renderBatchPersonRow(row, statusClass)).join("")
+            : `<p class="muted">Keine Einträge.</p>`
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderBatchPersonRow(row, statusClass) {
+  const person = row.recipient.client || row.task?.client || {};
+  const task = row.task;
+  const reflectionCount = task?.reflections?.length || 0;
+  return `
+    <article class="batch-person-row ${statusClass}">
+      <div>
+        <strong>${escapeHtml(personName(person, row.recipient.client_id))}</strong>
+        <small>${escapeHtml(personEmail(person))}</small>
+      </div>
+      <div class="batch-person-meta">
+        ${task?.completed_at ? `<span class="chip done">Erledigt ${formatDate(task.completed_at.slice(0, 10))}</span>` : ""}
+        ${reflectionCount ? `<span class="chip done">Reflexion vorhanden</span>` : `<span class="chip">Keine Reflexion</span>`}
+        ${task ? `<button class="btn small" data-open-reader="task:${task.id}">Aufgabe öffnen</button>` : ""}
+      </div>
+    </article>
   `;
 }
 
@@ -2757,14 +2957,19 @@ async function openAttachment(attachmentId) {
 
 async function createTask(values) {
   const selectedGroupIds = [...new Set(values.group_ids || [])].filter(Boolean);
-  const groupClientIds = selectedGroupIds.flatMap((groupId) => {
+  if (selectedGroupIds.length && state.batchSchemaMissing) {
+    throw new Error("Gruppenfortschritte sind vorbereitet, aber das neue Supabase-SQL muss noch ausgeführt werden.");
+  }
+
+  const groupRecipientRows = selectedGroupIds.flatMap((groupId) => {
     const members = groupMembers(groupId);
     if (members.length < 2) {
       const group = state.groups.find((item) => item.id === groupId);
       throw new Error(`Die Gruppe "${group?.name || "Gruppe"}" braucht mindestens zwei Personen.`);
     }
-    return members.map((member) => member.client_id);
+    return members.map((member) => ({ group_id: groupId, client_id: member.client_id }));
   });
+  const groupClientIds = groupRecipientRows.map((row) => row.client_id);
   const directClientIds = (values.client_ids || []).filter(Boolean);
   const clientIds = [...new Set([...directClientIds, ...groupClientIds])];
   const files = values.attachment_files || [];
@@ -2776,17 +2981,53 @@ async function createTask(values) {
     await ensureAttachmentSupport();
   }
 
-  const rows = clientIds.map((clientId) => ({
-    organization_id: state.organization.id,
-    coach_id: state.session.user.id,
-    client_id: clientId,
-    title: values.title,
-    description: richTextToHtml(values.description || ""),
-    due_date: values.due_date,
-  }));
+  let assignmentBatchId = null;
+  if (selectedGroupIds.length) {
+    const { data: batch, error: batchError } = await state.supabase
+      .from("assignment_batches")
+      .insert({
+        organization_id: state.organization.id,
+        coach_id: state.session.user.id,
+        title: values.title,
+        description: richTextToHtml(values.description || ""),
+        due_date: values.due_date,
+        recipient_count: clientIds.length,
+      })
+      .select("id")
+      .single();
+    if (batchError) throw batchError;
+    assignmentBatchId = batch.id;
+
+    const recipientRows = groupRecipientRows.map((row) => ({
+      organization_id: state.organization.id,
+      batch_id: assignmentBatchId,
+      group_id: row.group_id,
+      client_id: row.client_id,
+    }));
+    const { error: recipientError } = await state.supabase.from("assignment_batch_recipients").insert(recipientRows);
+    if (recipientError) throw recipientError;
+  }
+
+  const rows = clientIds.map((clientId) => {
+    const row = {
+      organization_id: state.organization.id,
+      coach_id: state.session.user.id,
+      client_id: clientId,
+      title: values.title,
+      description: richTextToHtml(values.description || ""),
+      due_date: values.due_date,
+    };
+    if (assignmentBatchId) row.assignment_batch_id = assignmentBatchId;
+    return row;
+  });
 
   const { data: createdTasks, error } = await state.supabase.from("tasks").insert(rows).select("*");
-  if (error) throw error;
+  if (error) {
+    if (assignmentBatchId) {
+      await state.supabase.from("assignment_batches").delete().eq("id", assignmentBatchId).eq("organization_id", state.organization.id);
+    }
+    throw error;
+  }
   if (files.length) {
     for (const task of createdTasks || []) {
       await uploadAttachments(files, task.id);
@@ -3476,6 +3717,12 @@ app.addEventListener("paste", (event) => {
 });
 
 app.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.batchModalId) {
+    state.batchModalId = "";
+    renderApp();
+    return;
+  }
+
   if (event.key === "Escape" && state.groupEditor) {
     state.groupEditor = null;
     renderApp();
@@ -3594,6 +3841,12 @@ app.addEventListener("change", async (event) => {
 });
 
 app.addEventListener("click", async (event) => {
+  if (event.target.hasAttribute("data-batch-backdrop")) {
+    state.batchModalId = "";
+    renderApp();
+    return;
+  }
+
   if (event.target.hasAttribute("data-group-backdrop")) {
     state.groupEditor = null;
     renderApp();
@@ -3642,6 +3895,19 @@ app.addEventListener("click", async (event) => {
     const preview = target.closest("[data-rich-preview]");
     const expanded = preview?.classList.toggle("expanded");
     target.textContent = expanded ? "Weniger anzeigen" : "Mehr anzeigen";
+    return;
+  }
+
+  if (target.dataset.openReader) {
+    state.readerModal = target.dataset.openReader;
+    state.batchModalId = "";
+    renderApp();
+    return;
+  }
+
+  if (target.dataset.openBatch) {
+    state.batchModalId = `${target.dataset.openBatch}:${target.dataset.batchGroup || ""}`;
+    renderApp();
     return;
   }
 
@@ -3849,6 +4115,11 @@ app.addEventListener("click", async (event) => {
 
   if (target.dataset.action === "close-reader-modal") {
     state.readerModal = null;
+    renderApp();
+  }
+
+  if (target.dataset.action === "close-batch-modal") {
+    state.batchModalId = "";
     renderApp();
   }
 

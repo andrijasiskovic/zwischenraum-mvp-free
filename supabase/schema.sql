@@ -135,11 +135,37 @@ create table if not exists public.client_group_members (
 
 create index if not exists client_group_members_org_client_idx on public.client_group_members(organization_id, client_id);
 
+create table if not exists public.assignment_batches (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  coach_id uuid not null references public.profiles(id) on delete cascade,
+  title text not null,
+  description text not null default '',
+  due_date date not null,
+  recipient_count integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists assignment_batches_org_coach_idx on public.assignment_batches(organization_id, coach_id);
+
+create table if not exists public.assignment_batch_recipients (
+  batch_id uuid not null references public.assignment_batches(id) on delete cascade,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  group_id uuid not null references public.client_groups(id) on delete cascade,
+  client_id uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (batch_id, group_id, client_id)
+);
+
+create index if not exists assignment_batch_recipients_org_group_idx on public.assignment_batch_recipients(organization_id, group_id);
+create index if not exists assignment_batch_recipients_batch_client_idx on public.assignment_batch_recipients(batch_id, client_id);
+
 create table if not exists public.tasks (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   coach_id uuid not null references public.profiles(id),
   client_id uuid not null references public.profiles(id),
+  assignment_batch_id uuid references public.assignment_batches(id) on delete set null,
   title text not null,
   description text not null default '',
   due_date date not null,
@@ -148,6 +174,11 @@ create table if not exists public.tasks (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.tasks
+  add column if not exists assignment_batch_id uuid references public.assignment_batches(id) on delete set null;
+
+create index if not exists tasks_assignment_batch_idx on public.tasks(assignment_batch_id);
 
 create table if not exists public.reflections (
   id uuid primary key default gen_random_uuid(),
@@ -326,6 +357,8 @@ alter table public.invitations enable row level security;
 alter table public.coach_client_relationships enable row level security;
 alter table public.client_groups enable row level security;
 alter table public.client_group_members enable row level security;
+alter table public.assignment_batches enable row level security;
+alter table public.assignment_batch_recipients enable row level security;
 alter table public.tasks enable row level security;
 alter table public.reflections enable row level security;
 alter table public.task_attachments enable row level security;
@@ -498,6 +531,80 @@ with check (
   )
 );
 
+drop policy if exists "assignment batches readable by owners and owning coach" on public.assignment_batches;
+create policy "assignment batches readable by owners and owning coach" on public.assignment_batches
+for select to authenticated using (
+  public.has_org_role(organization_id, array['owner']::public.member_role[])
+  or coach_id = auth.uid()
+);
+
+drop policy if exists "assignment batches editable by owners and owning coach" on public.assignment_batches;
+create policy "assignment batches editable by owners and owning coach" on public.assignment_batches
+for all to authenticated using (
+  public.has_org_role(organization_id, array['owner']::public.member_role[])
+  or coach_id = auth.uid()
+)
+with check (
+  public.has_org_role(organization_id, array['owner']::public.member_role[])
+  or coach_id = auth.uid()
+);
+
+drop policy if exists "assignment batch recipients readable by batch scope" on public.assignment_batch_recipients;
+create policy "assignment batch recipients readable by batch scope" on public.assignment_batch_recipients
+for select to authenticated using (
+  exists (
+    select 1
+    from public.assignment_batches batches
+    where batches.id = assignment_batch_recipients.batch_id
+      and batches.organization_id = assignment_batch_recipients.organization_id
+      and (
+        batches.coach_id = auth.uid()
+        or public.has_org_role(batches.organization_id, array['owner']::public.member_role[])
+      )
+  )
+);
+
+drop policy if exists "assignment batch recipients editable by batch scope" on public.assignment_batch_recipients;
+create policy "assignment batch recipients editable by batch scope" on public.assignment_batch_recipients
+for all to authenticated using (
+  exists (
+    select 1
+    from public.assignment_batches batches
+    where batches.id = assignment_batch_recipients.batch_id
+      and batches.organization_id = assignment_batch_recipients.organization_id
+      and (
+        batches.coach_id = auth.uid()
+        or public.has_org_role(batches.organization_id, array['owner']::public.member_role[])
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.assignment_batches batches
+    where batches.id = assignment_batch_recipients.batch_id
+      and batches.organization_id = assignment_batch_recipients.organization_id
+      and (
+        batches.coach_id = auth.uid()
+        or public.has_org_role(batches.organization_id, array['owner']::public.member_role[])
+      )
+  )
+  and exists (
+    select 1
+    from public.client_groups groups
+    where groups.id = assignment_batch_recipients.group_id
+      and groups.organization_id = assignment_batch_recipients.organization_id
+      and (
+        groups.coach_id = auth.uid()
+        or public.has_org_role(groups.organization_id, array['owner']::public.member_role[])
+      )
+  )
+  and (
+    public.has_org_role(organization_id, array['owner']::public.member_role[])
+    or public.is_assigned_coach(organization_id, client_id)
+  )
+);
+
 drop policy if exists "tasks visible to owners coaches and clients" on public.tasks;
 create policy "tasks visible to owners coaches and clients" on public.tasks
 for select to authenticated using (
@@ -625,6 +732,8 @@ grant select on public.invitations to authenticated;
 grant select on public.coach_client_relationships to authenticated;
 grant select, insert, update, delete on public.client_groups to authenticated;
 grant select, insert, delete on public.client_group_members to authenticated;
+grant select, insert, update, delete on public.assignment_batches to authenticated;
+grant select, insert, update, delete on public.assignment_batch_recipients to authenticated;
 grant select, insert, update on public.tasks to authenticated;
 grant select, insert on public.reflections to authenticated;
 grant select, insert on public.task_attachments to authenticated;
@@ -1140,6 +1249,16 @@ begin
     and (
       is_owner
       or groups.coach_id = auth.uid()
+    );
+
+  delete from public.assignment_batch_recipients recipients
+  using public.assignment_batches batches
+  where recipients.batch_id = batches.id
+    and recipients.organization_id = org_id
+    and recipients.client_id = removed_client_id
+    and (
+      is_owner
+      or batches.coach_id = auth.uid()
     );
 
   update public.coach_client_relationships
