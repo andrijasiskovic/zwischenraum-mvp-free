@@ -9,7 +9,7 @@
   });
 
   window.addEventListener("load", function onLoad() {
-    navigator.serviceWorker.register("./sw.js?v=20260606-client-profile-link").catch(function ignoreRegistrationError() {
+    navigator.serviceWorker.register("./sw.js?v=20260606-reminder-copy").catch(function ignoreRegistrationError() {
       // The app still works as a normal website if service workers are unavailable.
     });
   });

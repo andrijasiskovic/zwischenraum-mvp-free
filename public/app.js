@@ -2708,22 +2708,70 @@ function reminderMessage(row) {
       return `- ${task.title} (fällig ${formatDate(task.due_date)}, ${overdue})`;
     })
     .join("\n");
+  const copy = reminderCopy();
 
   return {
     email: row.clientEmail,
-    subject: "Erinnerung: offene Aufgaben in Moment:um",
+    subject: copy.subject,
     body: [
       `Hallo ${row.clientName},`,
       "",
-      "du hast noch offene Aufgaben in Moment:um:",
+      copy.intro,
       "",
+      copy.body,
+      "",
+      "Offene Aufgaben:",
       taskLines,
       "",
-      "Bitte nimm dir Zeit für die Umsetzung und schließe die Aufgaben anschließend mit deiner Reflexion ab.",
+      "Bleib in deinem Moment:um – die wichtigsten Fortschritte entstehen zwischen den Sessions.",
       "",
       "Liebe Grüße",
+      "Das Moment:um Team",
     ].join("\n"),
   };
+}
+
+function reminderCopy() {
+  const copies = {
+    generic_coaching: {
+      subject: "Erinnerung: Deine nächsten Schritte warten",
+      intro: "du hast noch offene Aufgaben in Moment:um 💬",
+      body:
+        "Deine nächsten Schritte warten bereits auf dich. Jede Umsetzung hilft dir dabei, neue Erkenntnisse in die Praxis zu bringen und deine Ziele Schritt für Schritt zu verfolgen.",
+    },
+    psychotherapy: {
+      subject: "Erinnerung: Deine Reflexion wartet auf dich",
+      intro: "du hast noch offene Aufgaben in Moment:um 🌿",
+      body:
+        "Veränderungen entstehen oft in der Zeit zwischen den Sitzungen. Deine Übungen und Reflexionen helfen dir dabei, neue Erkenntnisse in deinen Alltag zu integrieren und bewusster wahrzunehmen, was sich entwickelt.",
+    },
+    physiotherapy: {
+      subject: "Erinnerung: Bleib in Bewegung",
+      intro: "du hast noch offene Aufgaben in Moment:um 🧘",
+      body:
+        "Regelmäßige Übungen sind ein wichtiger Teil deines Fortschritts. Bleib dran und unterstütze deinen Körper dabei, Kraft, Beweglichkeit und Stabilität weiter aufzubauen.",
+    },
+    football: {
+      subject: "Erinnerung: Arbeite an deinem nächsten Entwicklungsschritt",
+      intro: "du hast noch offene Aufgaben in Moment:um ⚽",
+      body:
+        "Die entscheidenden Entwicklungsschritte passieren oft zwischen den Trainingseinheiten. Nutze die Zeit, um an deinen Fähigkeiten zu arbeiten und deinem nächsten Ziel näherzukommen.",
+    },
+    dog_training: {
+      subject: "Erinnerung: Zeit für eure nächste Übung",
+      intro: "du hast noch offene Aufgaben in Moment:um 🐾",
+      body:
+        "Konsequentes Training im Alltag macht den Unterschied. Jede Übung stärkt das Gelernte und hilft euch dabei, gemeinsam Fortschritte zu machen.",
+    },
+    nutrition: {
+      subject: "Erinnerung: Dein nächster Schritt zählt",
+      intro: "du hast noch offene Aufgaben in Moment:um. 🥗",
+      body:
+        "Nachhaltige Veränderungen entstehen durch viele kleine Entscheidungen. Bleib dran und arbeite Schritt für Schritt an deinen persönlichen Zielen.",
+    },
+  };
+
+  return copies[state.organization?.industry_preset_id] || copies.generic_coaching;
 }
 
 function openReminderEmail(row) {
