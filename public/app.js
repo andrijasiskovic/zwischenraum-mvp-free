@@ -40,11 +40,13 @@ const state = {
   error: "",
   modalTask: null,
   readerModal: null,
+  groupEditor: null,
   lastInviteId: "",
   inviteModalId: "",
   editingTemplateId: "",
   reminderModalClientId: "",
   selectedTaskClientIds: [],
+  selectedTaskGroupIds: [],
   clientSearch: "",
   clientPickerOpen: false,
   mobileMenuOpen: false,
@@ -419,11 +421,13 @@ function resetNavigationState() {
   state.selectedClientId = "";
   state.modalTask = null;
   state.readerModal = null;
+  state.groupEditor = null;
   state.lastInviteId = "";
   state.inviteModalId = "";
   state.editingTemplateId = "";
   state.reminderModalClientId = "";
   state.selectedTaskClientIds = [];
+  state.selectedTaskGroupIds = [];
   state.clientSearch = "";
   state.clientPickerOpen = false;
   state.mobileMenuOpen = false;
@@ -1049,6 +1053,7 @@ function renderApp() {
       </main>
       ${state.modalTask ? renderReflectionModal() : ""}
       ${state.readerModal ? renderReaderModal() : ""}
+      ${state.groupEditor ? renderGroupModal() : ""}
       ${state.inviteModalId ? renderInviteModal() : ""}
       ${state.reminderModalClientId ? renderReminderModal() : ""}
     </div>
@@ -1395,23 +1400,54 @@ function renderTaskGroupPicker() {
     return `<p class="muted compact-help">Noch keine Gruppen angelegt. Du kannst Gruppen in der Rubrik Gruppen erstellen.</p>`;
   }
 
+  const selectedGroups = state.groups.filter((group) => state.selectedTaskGroupIds.includes(group.id));
+  const availableGroups = state.groups.filter((group) => !state.selectedTaskGroupIds.includes(group.id));
+  const hiddenGroupInputs = selectedGroups
+    .map((group) => `<input type="hidden" name="group_ids" value="${group.id}" />`)
+    .join("");
+
   return `
-    <div class="group-task-picker">
+    <div class="group-task-picker" data-task-group-picker>
+      <div class="selected-client-chips group-selection-chips">
+        ${
+          selectedGroups.length
+            ? selectedGroups
+                .map((group) => {
+                  const count = groupMembers(group.id).length;
+                  return `
+                    <span class="selected-client-chip">
+                      ${escapeHtml(group.name)} · ${count}
+                      <button type="button" data-unselect-task-group="${group.id}">×</button>
+                    </span>
+                  `;
+                })
+                .join("")
+            : `<span class="client-picker-hint">Optional: Gruppe auswählen.</span>`
+        }
+      </div>
+      ${hiddenGroupInputs}
       <label class="field">
         <span>Gruppe hinzufügen</span>
-        <select data-task-group-select>
+        <select data-task-group-select ${availableGroups.length ? "" : "disabled"}>
           <option value="">Gruppe auswählen</option>
-          ${state.groups
+          ${availableGroups
             .map((group) => {
               const count = groupMembers(group.id).length;
-              return `<option value="${group.id}">${escapeHtml(group.name)} · ${count} Mitglied${count === 1 ? "" : "er"}</option>`;
+              const disabled = count < 2 ? "disabled" : "";
+              const suffix = count < 2 ? " · mindestens 2 nötig" : ` · ${count} Personen`;
+              return `<option value="${group.id}" ${disabled}>${escapeHtml(group.name)}${escapeHtml(suffix)}</option>`;
             })
             .join("")}
         </select>
       </label>
-      <button class="btn small" type="button" data-add-task-group>Gruppe hinzufügen</button>
+      <button class="btn small" type="button" data-add-task-group ${availableGroups.length ? "" : "disabled"}>Gruppe hinzufügen</button>
     </div>
   `;
+}
+
+function refreshTaskGroupPicker() {
+  const picker = document.querySelector("[data-task-group-picker]");
+  if (picker) picker.outerHTML = renderTaskGroupPicker();
 }
 
 function refreshClientPicker(options = {}) {
@@ -1542,7 +1578,7 @@ function renderGroups() {
     <section class="grid two group-management-grid">
       <form class="panel form-grid" data-action="create-group">
         <h2>Gruppe erstellen</h2>
-        <p class="muted">Gruppen helfen dir, dieselbe Aufgabe mehreren ${escapeHtml(state.preset?.client_label || "Clients")} gleichzeitig zu senden.</p>
+        <p class="muted">Gruppen helfen dir, dieselbe Aufgabe mehreren Personen gleichzeitig zu senden. Jede Gruppe braucht mindestens 2 Mitglieder.</p>
         <label class="field">
           <span>Gruppenname</span>
           <input name="name" required placeholder="z. B. U12 Technikgruppe" />
@@ -1568,54 +1604,130 @@ function groupMembers(groupId) {
   return state.groupMembers.filter((member) => member.group_id === groupId);
 }
 
-function groupAvailableClients(groupId) {
-  const assignedIds = new Set(groupMembers(groupId).map((member) => member.client_id));
-  return state.clients.filter((item) => !assignedIds.has(item.client_id));
-}
-
 function renderGroupCard(group) {
   const members = groupMembers(group.id);
-  const available = groupAvailableClients(group.id);
 
   return `
-    <article class="group-card">
-      <div class="toolbar compact-toolbar">
+    <article class="group-card compact-group-card" data-edit-group-card="${group.id}" role="button" tabindex="0">
+      <div class="compact-group-main">
         <div>
           <h3>${escapeHtml(group.name)}</h3>
-          <p class="muted">${members.length} Mitglied${members.length === 1 ? "" : "er"}</p>
+          <p class="muted">${members.length} Person${members.length === 1 ? "" : "en"}</p>
+          ${members.length < 2 ? `<small class="error">Mindestens 2 Personen erforderlich</small>` : ""}
         </div>
-        <button class="btn small subtle-danger" data-delete-group="${group.id}" data-group-name="${escapeHtml(group.name)}">Löschen</button>
+        <div class="compact-group-actions">
+          <button class="btn small" data-edit-group="${group.id}">Bearbeiten</button>
+          <button class="btn small subtle-danger" data-delete-group="${group.id}" data-group-name="${escapeHtml(group.name)}">Löschen</button>
+        </div>
       </div>
-      <div class="selected-client-chips group-member-chips">
-        ${
-          members.length
-            ? members.map((member) => `
-              <span class="selected-client-chip">
-                ${escapeHtml(personName(member.client, member.client_id))}
-                <button type="button" title="Aus Gruppe entfernen" data-remove-group-member="${group.id}" data-client-id="${member.client_id}">×</button>
-              </span>
-            `).join("")
-            : `<span class="client-picker-hint">Noch keine Mitglieder.</span>`
-        }
-      </div>
-      <form class="group-add-form" data-action="add-group-member">
-        <input type="hidden" name="group_id" value="${escapeHtml(group.id)}" />
-        <label class="field">
-          <span>${escapeHtml(state.preset?.client_label || "Client")} hinzufügen</span>
-          <select name="client_id" ${available.length ? "" : "disabled"}>
-            ${
-              available.length
-                ? available
-                    .map((item) => `<option value="${item.client_id}">${escapeHtml(personName(item.client, item.client_id))}</option>`)
-                    .join("")
-                : `<option value="">Alle sichtbaren Personen sind bereits in der Gruppe</option>`
-            }
-          </select>
-        </label>
-        <button class="btn small" ${available.length ? "" : "disabled"}>Hinzufügen</button>
-      </form>
     </article>
   `;
+}
+
+function openGroupEditor(groupId = "", name = "") {
+  const group = state.groups.find((item) => item.id === groupId);
+  state.groupEditor = {
+    groupId: group?.id || "",
+    name: group?.name || name,
+    selectedIds: group ? groupMembers(group.id).map((member) => member.client_id) : [],
+    search: "",
+  };
+  renderApp();
+}
+
+function groupEditorRows() {
+  const query = String(state.groupEditor?.search || "").trim().toLowerCase();
+  return state.clients
+    .map((item) => ({
+      id: item.client_id,
+      name: personName(item.client, item.client_id),
+      email: personEmail(item.client),
+    }))
+    .filter((item) => {
+      if (!query) return true;
+      return `${item.name} ${item.email}`.toLowerCase().includes(query);
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "de"));
+}
+
+function renderGroupModal() {
+  return `
+    <div class="modal" data-group-backdrop>
+      ${renderGroupModalCard()}
+    </div>
+  `;
+}
+
+function renderGroupModalCard() {
+  const editor = state.groupEditor || { groupId: "", name: "", selectedIds: [], search: "" };
+  const rows = groupEditorRows();
+  const selected = new Set(editor.selectedIds);
+  const visibleIds = rows.map((item) => item.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const selectedCount = selected.size;
+
+  return `
+    <form class="panel modal-card group-modal-card" data-group-modal-card data-action="save-group">
+      <div class="reader-head">
+        <div>
+          <span class="reader-eyebrow">${editor.groupId ? "Gruppe bearbeiten" : "Neue Gruppe"}</span>
+          <h2>${escapeHtml(editor.name)}</h2>
+        </div>
+        <button class="btn small" type="button" data-action="close-group-modal">Schließen</button>
+      </div>
+      <input type="hidden" name="group_id" value="${escapeHtml(editor.groupId)}" />
+      <input type="hidden" name="name" value="${escapeHtml(editor.name)}" />
+      <div class="group-modal-body">
+        <label class="client-directory-search group-member-search">
+          <span>Suchen</span>
+          <input data-group-member-search value="${escapeHtml(editor.search)}" placeholder="Name oder E-Mail" autocomplete="off" />
+        </label>
+        <div class="group-select-toolbar">
+          <button class="btn small" type="button" data-toggle-all-group-members>
+            ${allVisibleSelected ? "Sichtbare abwählen" : "Alle auswählen"}
+          </button>
+          <span class="muted">${selectedCount} ausgewählt · mindestens 2 nötig</span>
+        </div>
+        <div class="group-member-list">
+          ${
+            rows.length
+              ? rows
+                  .map(
+                    (item) => `
+                      <label class="group-member-row">
+                        <input type="checkbox" name="group_member_ids" value="${item.id}" data-group-member-checkbox ${selected.has(item.id) ? "checked" : ""} />
+                        <span>
+                          <strong>${escapeHtml(item.name)}</strong>
+                          <small>${escapeHtml(item.email)}</small>
+                        </span>
+                      </label>
+                    `,
+                  )
+                  .join("")
+              : `<p class="muted">Keine passenden Personen gefunden.</p>`
+          }
+        </div>
+        ${state.clients.length < 2 ? `<p class="error">Für eine Gruppe brauchst du mindestens zwei aktive Personen.</p>` : ""}
+      </div>
+      <div class="modal-actions">
+        <button class="btn subtle" type="button" data-action="close-group-modal">Abbrechen</button>
+        <button class="btn primary" ${selectedCount >= 2 ? "" : "disabled"}>Änderungen speichern (${selectedCount})</button>
+      </div>
+    </form>
+  `;
+}
+
+function refreshGroupModal(options = {}) {
+  const card = document.querySelector("[data-group-modal-card]");
+  if (!card) return;
+  card.outerHTML = renderGroupModalCard();
+  if (options.focusSearch !== false) {
+    const input = document.querySelector("[data-group-member-search]");
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  }
 }
 
 function renderMyProfile() {
@@ -2504,6 +2616,8 @@ async function handleSubmit(event) {
   const action = form.dataset.action;
   const values = Object.fromEntries(new FormData(form));
   values.client_ids = new FormData(form).getAll("client_ids");
+  values.group_ids = new FormData(form).getAll("group_ids");
+  values.group_member_ids = new FormData(form).getAll("group_member_ids");
   values.attachment_files = new FormData(form).getAll("attachment_files").filter((file) => file?.size > 0);
   state.error = "";
   state.message = "";
@@ -2523,7 +2637,7 @@ async function handleSubmit(event) {
     if (action === "accept-invite") await acceptInvite(values);
     if (action === "create-task") await createTask(values);
     if (action === "create-group") await createGroup(values);
-    if (action === "add-group-member") await addGroupMember(values);
+    if (action === "save-group") await saveGroup(values);
     if (action === "create-invite") await createInvite(values);
     if (action === "save-settings") await saveSettings(values);
     if (action === "create-template") await createTemplate(values);
@@ -2643,7 +2757,16 @@ async function openAttachment(attachmentId) {
 }
 
 async function createTask(values) {
-  const clientIds = [...new Set(values.client_ids || [])];
+  const selectedGroupIds = [...new Set(values.group_ids || [])];
+  const groupClientIds = selectedGroupIds.flatMap((groupId) => {
+    const members = groupMembers(groupId);
+    if (members.length < 2) {
+      const group = state.groups.find((item) => item.id === groupId);
+      throw new Error(`Die Gruppe "${group?.name || "Gruppe"}" braucht mindestens zwei Personen.`);
+    }
+    return members.map((member) => member.client_id);
+  });
+  const clientIds = [...new Set([...(values.client_ids || []), ...groupClientIds])];
   const files = values.attachment_files || [];
   if (!clientIds.length) {
     throw new Error("Bitte mindestens einen Client auswählen.");
@@ -2674,6 +2797,7 @@ async function createTask(values) {
       ? "Aufgabe wurde erstellt."
       : `Aufgabe wurde für ${clientIds.length} Clients erstellt.`;
   state.selectedTaskClientIds = [];
+  state.selectedTaskGroupIds = [];
   state.clientSearch = "";
   state.clientPickerOpen = false;
   await loadWorkspaceData();
@@ -2683,46 +2807,65 @@ async function createTask(values) {
 async function createGroup(values) {
   const name = String(values.name || "").trim();
   if (!name) throw new Error("Bitte Gruppennamen eingeben.");
-
-  const { error } = await state.supabase.from("client_groups").insert({
-    organization_id: state.organization.id,
-    coach_id: state.session.user.id,
-    name,
-  });
-  if (error) throw error;
-
-  state.message = "Gruppe wurde erstellt.";
-  await loadWorkspaceData();
-  renderApp();
-}
-
-async function addGroupMember(values) {
-  if (!values.group_id || !values.client_id) {
-    throw new Error("Bitte Mitglied auswählen.");
+  if (state.clients.length < 2) {
+    throw new Error("Für eine Gruppe brauchst du mindestens zwei aktive Personen.");
   }
 
-  const { error } = await state.supabase.from("client_group_members").insert({
-    organization_id: state.organization.id,
-    group_id: values.group_id,
-    client_id: values.client_id,
-  });
-  if (error) throw error;
-
-  state.message = "Mitglied wurde zur Gruppe hinzugefügt.";
-  await loadWorkspaceData();
-  renderApp();
+  openGroupEditor("", name);
 }
 
-async function removeGroupMember(groupId, clientId) {
-  const { error } = await state.supabase
-    .from("client_group_members")
-    .delete()
-    .eq("organization_id", state.organization.id)
-    .eq("group_id", groupId)
-    .eq("client_id", clientId);
-  if (error) throw error;
+async function saveGroup(values) {
+  const editor = state.groupEditor;
+  const name = String(values.name || editor?.name || "").trim();
+  const memberIds = [...new Set(editor?.selectedIds || values.group_member_ids || [])].filter((clientId) =>
+    state.clients.some((item) => item.client_id === clientId),
+  );
 
-  state.message = "Mitglied wurde aus der Gruppe entfernt.";
+  if (!name) throw new Error("Bitte Gruppennamen eingeben.");
+  if (memberIds.length < 2) {
+    throw new Error("Bitte mindestens zwei Personen auswählen.");
+  }
+
+  let groupId = values.group_id || editor?.groupId || "";
+
+  if (groupId) {
+    const { error: updateError } = await state.supabase
+      .from("client_groups")
+      .update({ name })
+      .eq("organization_id", state.organization.id)
+      .eq("id", groupId);
+    if (updateError) throw updateError;
+
+    const { error: deleteError } = await state.supabase
+      .from("client_group_members")
+      .delete()
+      .eq("organization_id", state.organization.id)
+      .eq("group_id", groupId);
+    if (deleteError) throw deleteError;
+  } else {
+    const { data: group, error: insertError } = await state.supabase
+      .from("client_groups")
+      .insert({
+        organization_id: state.organization.id,
+        coach_id: state.session.user.id,
+        name,
+      })
+      .select("id")
+      .single();
+    if (insertError) throw insertError;
+    groupId = group.id;
+  }
+
+  const rows = memberIds.map((clientId) => ({
+    organization_id: state.organization.id,
+    group_id: groupId,
+    client_id: clientId,
+  }));
+  const { error: memberError } = await state.supabase.from("client_group_members").insert(rows);
+  if (memberError) throw memberError;
+
+  state.groupEditor = null;
+  state.message = "Gruppe wurde gespeichert.";
   await loadWorkspaceData();
   renderApp();
 }
@@ -2738,6 +2881,8 @@ async function deleteGroup(groupId, groupName) {
     .eq("id", groupId);
   if (error) throw error;
 
+  state.selectedTaskGroupIds = state.selectedTaskGroupIds.filter((id) => id !== groupId);
+  if (state.groupEditor?.groupId === groupId) state.groupEditor = null;
   state.message = "Gruppe wurde gelöscht.";
   await loadWorkspaceData();
   renderApp();
@@ -3296,6 +3441,13 @@ app.addEventListener("input", (event) => {
     return;
   }
 
+  const groupSearch = event.target.closest("[data-group-member-search]");
+  if (groupSearch && state.groupEditor) {
+    state.groupEditor.search = groupSearch.value;
+    refreshGroupModal();
+    return;
+  }
+
   const input = event.target.closest("[data-client-search]");
   if (!input) return;
   state.clientSearch = input.value;
@@ -3324,6 +3476,12 @@ app.addEventListener("paste", (event) => {
 });
 
 app.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.groupEditor) {
+    state.groupEditor = null;
+    renderApp();
+    return;
+  }
+
   if (event.key === "Escape" && state.readerModal) {
     state.readerModal = null;
     renderApp();
@@ -3394,6 +3552,19 @@ app.addEventListener("change", async (event) => {
     return;
   }
 
+  const groupCheckbox = event.target.closest("[data-group-member-checkbox]");
+  if (groupCheckbox && state.groupEditor) {
+    const selected = new Set(state.groupEditor.selectedIds);
+    if (groupCheckbox.checked) {
+      selected.add(groupCheckbox.value);
+    } else {
+      selected.delete(groupCheckbox.value);
+    }
+    state.groupEditor.selectedIds = [...selected];
+    refreshGroupModal({ focusSearch: false });
+    return;
+  }
+
   const select = event.target.closest("[data-template-select]");
   if (!select) return;
 
@@ -3407,6 +3578,12 @@ app.addEventListener("change", async (event) => {
 });
 
 app.addEventListener("click", async (event) => {
+  if (event.target.hasAttribute("data-group-backdrop")) {
+    state.groupEditor = null;
+    renderApp();
+    return;
+  }
+
   if (event.target.hasAttribute("data-reader-backdrop")) {
     state.readerModal = null;
     renderApp();
@@ -3422,6 +3599,12 @@ app.addEventListener("click", async (event) => {
   if (readable && !event.target.closest("button, a, input, select, textarea, [contenteditable='true']")) {
     state.readerModal = readable.dataset.openReader;
     renderApp();
+    return;
+  }
+
+  const groupCard = event.target.closest("[data-edit-group-card]");
+  if (groupCard && !event.target.closest("button, a, input, select, textarea, [contenteditable='true']")) {
+    openGroupEditor(groupCard.dataset.editGroupCard);
     return;
   }
 
@@ -3518,20 +3701,40 @@ app.addEventListener("click", async (event) => {
     const select = document.querySelector("[data-task-group-select]");
     const groupId = select?.value || "";
     if (groupId) {
-      const memberIds = groupMembers(groupId).map((member) => member.client_id);
-      state.selectedTaskClientIds = [...new Set([...state.selectedTaskClientIds, ...memberIds])];
-      state.clientPickerOpen = false;
-      renderApp();
+      const members = groupMembers(groupId);
+      if (members.length < 2) {
+        state.error = "Diese Gruppe braucht mindestens zwei Personen.";
+        renderApp();
+        return;
+      }
+      state.selectedTaskGroupIds = [...new Set([...state.selectedTaskGroupIds, groupId])];
+      refreshTaskGroupPicker();
     }
   }
 
-  if (target.dataset.removeGroupMember) {
-    try {
-      await removeGroupMember(target.dataset.removeGroupMember, target.dataset.clientId);
-    } catch (error) {
-      state.error = error.message;
-      renderApp();
-    }
+  if (target.dataset.unselectTaskGroup) {
+    state.selectedTaskGroupIds = state.selectedTaskGroupIds.filter((groupId) => groupId !== target.dataset.unselectTaskGroup);
+    refreshTaskGroupPicker();
+  }
+
+  if (target.dataset.editGroup) {
+    openGroupEditor(target.dataset.editGroup);
+  }
+
+  if (target.hasAttribute("data-toggle-all-group-members") && state.groupEditor) {
+    const rows = groupEditorRows();
+    const visibleIds = rows.map((item) => item.id);
+    const selected = new Set(state.groupEditor.selectedIds);
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+    visibleIds.forEach((id) => {
+      if (allVisibleSelected) {
+        selected.delete(id);
+      } else {
+        selected.add(id);
+      }
+    });
+    state.groupEditor.selectedIds = [...selected];
+    refreshGroupModal({ focusSearch: false });
   }
 
   if (target.dataset.deleteGroup) {
@@ -3645,6 +3848,11 @@ app.addEventListener("click", async (event) => {
 
   if (target.dataset.action === "close-reader-modal") {
     state.readerModal = null;
+    renderApp();
+  }
+
+  if (target.dataset.action === "close-group-modal") {
+    state.groupEditor = null;
     renderApp();
   }
 
