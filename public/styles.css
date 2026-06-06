@@ -635,6 +635,47 @@ select:focus {
   gap: 9px;
 }
 
+.group-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.group-card {
+  border: 1px solid rgba(223, 221, 213, 0.92);
+  border-radius: 16px;
+  padding: 14px;
+  background: #fffefa;
+  display: grid;
+  gap: 12px;
+  box-shadow: 0 4px 16px rgba(24, 33, 31, 0.045);
+}
+
+.group-card h3 {
+  margin: 0 0 4px;
+}
+
+.compact-toolbar {
+  gap: 10px;
+}
+
+.group-member-chips {
+  min-height: 34px;
+}
+
+.group-add-form,
+.group-task-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.compact-help {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
 .task-row,
 .client-row {
   border: 1px solid rgba(223, 221, 213, 0.92);
@@ -1475,6 +1516,11 @@ button.chip.clickable:hover {
 
   .grid.metrics {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .group-add-form,
+  .group-task-picker {
+    grid-template-columns: 1fr;
   }
 }
 

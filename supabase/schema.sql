@@ -115,6 +115,26 @@ create table if not exists public.coach_client_relationships (
   primary key (organization_id, coach_id, client_id)
 );
 
+create table if not exists public.client_groups (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  coach_id uuid not null references public.profiles(id) on delete cascade,
+  name text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists client_groups_org_coach_idx on public.client_groups(organization_id, coach_id);
+
+create table if not exists public.client_group_members (
+  group_id uuid not null references public.client_groups(id) on delete cascade,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (group_id, client_id)
+);
+
+create index if not exists client_group_members_org_client_idx on public.client_group_members(organization_id, client_id);
+
 create table if not exists public.tasks (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -304,6 +324,8 @@ alter table public.profiles enable row level security;
 alter table public.organization_members enable row level security;
 alter table public.invitations enable row level security;
 alter table public.coach_client_relationships enable row level security;
+alter table public.client_groups enable row level security;
+alter table public.client_group_members enable row level security;
 alter table public.tasks enable row level security;
 alter table public.reflections enable row level security;
 alter table public.task_attachments enable row level security;
@@ -403,6 +425,78 @@ for select to authenticated using (public.has_org_role(organization_id, array['o
 drop policy if exists "relationships readable by org members" on public.coach_client_relationships;
 create policy "relationships readable by org members" on public.coach_client_relationships
 for select to authenticated using (public.is_org_member(organization_id));
+
+drop policy if exists "client groups readable by owners and owning coach" on public.client_groups;
+create policy "client groups readable by owners and owning coach" on public.client_groups
+for select to authenticated using (
+  public.has_org_role(organization_id, array['owner']::public.member_role[])
+  or coach_id = auth.uid()
+);
+
+drop policy if exists "client groups editable by owners and owning coach" on public.client_groups;
+create policy "client groups editable by owners and owning coach" on public.client_groups
+for all to authenticated using (
+  public.has_org_role(organization_id, array['owner']::public.member_role[])
+  or coach_id = auth.uid()
+)
+with check (
+  public.has_org_role(organization_id, array['owner']::public.member_role[])
+  or coach_id = auth.uid()
+);
+
+drop policy if exists "client group members readable by group scope" on public.client_group_members;
+create policy "client group members readable by group scope" on public.client_group_members
+for select to authenticated using (
+  exists (
+    select 1
+    from public.client_groups groups
+    where groups.id = client_group_members.group_id
+      and groups.organization_id = client_group_members.organization_id
+      and (
+        groups.coach_id = auth.uid()
+        or public.has_org_role(groups.organization_id, array['owner']::public.member_role[])
+      )
+  )
+);
+
+drop policy if exists "client group members editable by group scope" on public.client_group_members;
+create policy "client group members editable by group scope" on public.client_group_members
+for all to authenticated using (
+  exists (
+    select 1
+    from public.client_groups groups
+    where groups.id = client_group_members.group_id
+      and groups.organization_id = client_group_members.organization_id
+      and (
+        groups.coach_id = auth.uid()
+        or public.has_org_role(groups.organization_id, array['owner']::public.member_role[])
+      )
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.client_groups groups
+    where groups.id = client_group_members.group_id
+      and groups.organization_id = client_group_members.organization_id
+      and (
+        groups.coach_id = auth.uid()
+        or public.has_org_role(groups.organization_id, array['owner']::public.member_role[])
+      )
+  )
+  and exists (
+    select 1
+    from public.organization_members members
+    where members.organization_id = client_group_members.organization_id
+      and members.user_id = client_group_members.client_id
+      and members.role = 'client'
+      and members.active = true
+  )
+  and (
+    public.has_org_role(organization_id, array['owner']::public.member_role[])
+    or public.is_assigned_coach(organization_id, client_id)
+  )
+);
 
 drop policy if exists "tasks visible to owners coaches and clients" on public.tasks;
 create policy "tasks visible to owners coaches and clients" on public.tasks
@@ -529,6 +623,8 @@ grant select, update on public.organization_settings to authenticated;
 grant select on public.organization_members to authenticated;
 grant select on public.invitations to authenticated;
 grant select on public.coach_client_relationships to authenticated;
+grant select, insert, update, delete on public.client_groups to authenticated;
+grant select, insert, delete on public.client_group_members to authenticated;
 grant select, insert, update on public.tasks to authenticated;
 grant select, insert on public.reflections to authenticated;
 grant select, insert on public.task_attachments to authenticated;
@@ -1034,6 +1130,16 @@ begin
     and (
       is_owner
       or coalesce(invitations.client_coach_id, invitations.invited_by) = auth.uid()
+    );
+
+  delete from public.client_group_members members
+  using public.client_groups groups
+  where members.group_id = groups.id
+    and members.organization_id = org_id
+    and members.client_id = removed_client_id
+    and (
+      is_owner
+      or groups.coach_id = auth.uid()
     );
 
   update public.coach_client_relationships

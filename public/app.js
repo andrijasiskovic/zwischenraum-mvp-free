@@ -18,6 +18,9 @@ const state = {
   settings: null,
   preset: null,
   clients: [],
+  groups: [],
+  groupMembers: [],
+  groupSchemaMissing: false,
   organizationMembers: [],
   tasks: [],
   reflections: [],
@@ -363,6 +366,11 @@ function missingAttachmentSchema(error) {
   return message.includes("task_attachments") || message.includes("task-attachments") || error?.code === "42P01";
 }
 
+function missingGroupSchema(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("client_groups") || message.includes("client_group_members") || error?.code === "42P01";
+}
+
 function personName(person, fallback = "Unbekannt") {
   const fullName = String(person?.full_name || "").trim();
   if (fullName) return fullName;
@@ -647,7 +655,28 @@ async function loadWorkspaceData() {
     relationshipQuery.eq("client_id", state.session.user.id);
   }
 
-  const [tasks, relationships, orgMembers, reflections, invitations, notes, templates, attachments] = await Promise.all([
+  const groupQuery = state.supabase
+    .from("client_groups")
+    .select("*")
+    .eq("organization_id", orgId)
+    .order("name", { ascending: true });
+
+  if (role === "coach") {
+    groupQuery.eq("coach_id", state.session.user.id);
+  }
+
+  const [
+    tasks,
+    relationships,
+    groups,
+    groupMembers,
+    orgMembers,
+    reflections,
+    invitations,
+    notes,
+    templates,
+    attachments,
+  ] = await Promise.all([
     state.supabase
       .from("tasks")
       .select(
@@ -656,6 +685,14 @@ async function loadWorkspaceData() {
       .eq("organization_id", orgId)
       .order("due_date", { ascending: true }),
     relationshipQuery,
+    isCoachRole() ? groupQuery : Promise.resolve({ data: [], error: null }),
+    isCoachRole()
+      ? state.supabase
+          .from("client_group_members")
+          .select("*, client:profiles!client_group_members_client_id_fkey(id, full_name, email, contact_email, phone)")
+          .eq("organization_id", orgId)
+          .order("created_at", { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
     state.supabase
       .from("organization_members")
       .select("user_id, role, active")
@@ -693,6 +730,12 @@ async function loadWorkspaceData() {
   for (const result of [tasks, relationships, orgMembers, reflections, invitations, notes, templates]) {
     if (result.error) throw result.error;
   }
+  state.groupSchemaMissing = Boolean(
+    (groups.error && missingGroupSchema(groups.error)) || (groupMembers.error && missingGroupSchema(groupMembers.error)),
+  );
+  if ((groups.error && !missingGroupSchema(groups.error)) || (groupMembers.error && !missingGroupSchema(groupMembers.error))) {
+    throw groups.error || groupMembers.error;
+  }
   if (attachments.error && !missingAttachmentSchema(attachments.error)) {
     throw attachments.error;
   }
@@ -713,6 +756,13 @@ async function loadWorkspaceData() {
   state.organizationMembers = orgMembers.data || [];
   const activeWorkspaceClientIds = activeClientMemberIds();
   state.clients = (relationships.data || []).filter((relationship) => activeWorkspaceClientIds.has(relationship.client_id));
+  const groupRows = state.groupSchemaMissing ? [] : groups.data || [];
+  const groupMemberRows = state.groupSchemaMissing ? [] : groupMembers.data || [];
+  const visibleGroupIds = new Set(groupRows.map((group) => group.id));
+  state.groups = groupRows;
+  state.groupMembers = groupMemberRows.filter(
+    (member) => visibleGroupIds.has(member.group_id) && activeWorkspaceClientIds.has(member.client_id),
+  );
   state.reflections = reflectionRows;
   state.attachments = attachmentRows;
   state.invitations = invitations.data || [];
@@ -1040,6 +1090,7 @@ function renderSidebar(role) {
     ["dashboard", "Dashboard"],
     ["tasks", "Aufgaben"],
     isCoachRole() ? ["clients", state.preset?.client_label || "Clients"] : null,
+    isCoachRole() ? ["groups", "Gruppen"] : null,
     state.view === "clientProfile" ? ["clientProfile", "Profil"] : null,
     ["myProfile", "Mein Profil"],
     isCoachRole() ? ["reminders", "Erinnerungen"] : null,
@@ -1116,6 +1167,7 @@ function navTitle() {
   const labels = {
     tasks: "Aufgaben",
     clients: state.preset?.client_label || "Clients",
+    groups: "Gruppen",
     clientProfile: "Profil",
     myProfile: "Mein Profil",
     reminders: "Erinnerungen",
@@ -1127,6 +1179,7 @@ function navTitle() {
 function renderView() {
   if (state.view === "tasks") return renderTasks();
   if (state.view === "clients") return renderClients();
+  if (state.view === "groups") return renderGroups();
   if (state.view === "clientProfile") return renderClientProfile();
   if (state.view === "myProfile") return renderMyProfile();
   if (state.view === "reminders") return renderReminders();
@@ -1256,6 +1309,7 @@ function renderTaskForm() {
     <form class="panel form-grid" data-action="create-task">
       <h2>Neue Aufgabe</h2>
       ${renderClientPicker()}
+      ${renderTaskGroupPicker()}
       <label class="field">
         <span>Template</span>
         <select name="template_id" data-template-select>
@@ -1333,6 +1387,30 @@ function renderClientPicker() {
         </div>
       </div>
     </fieldset>
+  `;
+}
+
+function renderTaskGroupPicker() {
+  if (!state.groups.length) {
+    return `<p class="muted compact-help">Noch keine Gruppen angelegt. Du kannst Gruppen in der Rubrik Gruppen erstellen.</p>`;
+  }
+
+  return `
+    <div class="group-task-picker">
+      <label class="field">
+        <span>Gruppe hinzufügen</span>
+        <select data-task-group-select>
+          <option value="">Gruppe auswählen</option>
+          ${state.groups
+            .map((group) => {
+              const count = groupMembers(group.id).length;
+              return `<option value="${group.id}">${escapeHtml(group.name)} · ${count} Mitglied${count === 1 ? "" : "er"}</option>`;
+            })
+            .join("")}
+        </select>
+      </label>
+      <button class="btn small" type="button" data-add-task-group>Gruppe hinzufügen</button>
+    </div>
   `;
 }
 
@@ -1448,6 +1526,96 @@ function refreshClientDirectory() {
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   }
+}
+
+function renderGroups() {
+  if (state.groupSchemaMissing) {
+    return `
+      <section class="empty-card stack">
+        <h2>Gruppen sind vorbereitet</h2>
+        <p>Bitte führe zuerst die aktualisierte Datei <code>supabase/schema.sql</code> im Supabase SQL Editor aus. Danach kannst du Gruppen erstellen und Aufgaben an Gruppen senden.</p>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="grid two group-management-grid">
+      <form class="panel form-grid" data-action="create-group">
+        <h2>Gruppe erstellen</h2>
+        <p class="muted">Gruppen helfen dir, dieselbe Aufgabe mehreren ${escapeHtml(state.preset?.client_label || "Clients")} gleichzeitig zu senden.</p>
+        <label class="field">
+          <span>Gruppenname</span>
+          <input name="name" required placeholder="z. B. U12 Technikgruppe" />
+        </label>
+        <button class="btn primary">Gruppe erstellen</button>
+      </form>
+      <section class="panel">
+        <div class="toolbar">
+          <div>
+            <h2>Gruppen</h2>
+            <p class="muted">${state.groups.length} angelegt</p>
+          </div>
+        </div>
+        <div class="group-list">
+          ${state.groups.length ? state.groups.map(renderGroupCard).join("") : `<p class="muted">Noch keine Gruppen angelegt.</p>`}
+        </div>
+      </section>
+    </section>
+  `;
+}
+
+function groupMembers(groupId) {
+  return state.groupMembers.filter((member) => member.group_id === groupId);
+}
+
+function groupAvailableClients(groupId) {
+  const assignedIds = new Set(groupMembers(groupId).map((member) => member.client_id));
+  return state.clients.filter((item) => !assignedIds.has(item.client_id));
+}
+
+function renderGroupCard(group) {
+  const members = groupMembers(group.id);
+  const available = groupAvailableClients(group.id);
+
+  return `
+    <article class="group-card">
+      <div class="toolbar compact-toolbar">
+        <div>
+          <h3>${escapeHtml(group.name)}</h3>
+          <p class="muted">${members.length} Mitglied${members.length === 1 ? "" : "er"}</p>
+        </div>
+        <button class="btn small subtle-danger" data-delete-group="${group.id}" data-group-name="${escapeHtml(group.name)}">Löschen</button>
+      </div>
+      <div class="selected-client-chips group-member-chips">
+        ${
+          members.length
+            ? members.map((member) => `
+              <span class="selected-client-chip">
+                ${escapeHtml(personName(member.client, member.client_id))}
+                <button type="button" title="Aus Gruppe entfernen" data-remove-group-member="${group.id}" data-client-id="${member.client_id}">×</button>
+              </span>
+            `).join("")
+            : `<span class="client-picker-hint">Noch keine Mitglieder.</span>`
+        }
+      </div>
+      <form class="group-add-form" data-action="add-group-member">
+        <input type="hidden" name="group_id" value="${escapeHtml(group.id)}" />
+        <label class="field">
+          <span>${escapeHtml(state.preset?.client_label || "Client")} hinzufügen</span>
+          <select name="client_id" ${available.length ? "" : "disabled"}>
+            ${
+              available.length
+                ? available
+                    .map((item) => `<option value="${item.client_id}">${escapeHtml(personName(item.client, item.client_id))}</option>`)
+                    .join("")
+                : `<option value="">Alle sichtbaren Personen sind bereits in der Gruppe</option>`
+            }
+          </select>
+        </label>
+        <button class="btn small" ${available.length ? "" : "disabled"}>Hinzufügen</button>
+      </form>
+    </article>
+  `;
 }
 
 function renderMyProfile() {
@@ -2354,6 +2522,8 @@ async function handleSubmit(event) {
     if (action === "create-workspace") await createWorkspace(values);
     if (action === "accept-invite") await acceptInvite(values);
     if (action === "create-task") await createTask(values);
+    if (action === "create-group") await createGroup(values);
+    if (action === "add-group-member") await addGroupMember(values);
     if (action === "create-invite") await createInvite(values);
     if (action === "save-settings") await saveSettings(values);
     if (action === "create-template") await createTemplate(values);
@@ -2473,7 +2643,7 @@ async function openAttachment(attachmentId) {
 }
 
 async function createTask(values) {
-  const clientIds = values.client_ids || [];
+  const clientIds = [...new Set(values.client_ids || [])];
   const files = values.attachment_files || [];
   if (!clientIds.length) {
     throw new Error("Bitte mindestens einen Client auswählen.");
@@ -2506,6 +2676,69 @@ async function createTask(values) {
   state.selectedTaskClientIds = [];
   state.clientSearch = "";
   state.clientPickerOpen = false;
+  await loadWorkspaceData();
+  renderApp();
+}
+
+async function createGroup(values) {
+  const name = String(values.name || "").trim();
+  if (!name) throw new Error("Bitte Gruppennamen eingeben.");
+
+  const { error } = await state.supabase.from("client_groups").insert({
+    organization_id: state.organization.id,
+    coach_id: state.session.user.id,
+    name,
+  });
+  if (error) throw error;
+
+  state.message = "Gruppe wurde erstellt.";
+  await loadWorkspaceData();
+  renderApp();
+}
+
+async function addGroupMember(values) {
+  if (!values.group_id || !values.client_id) {
+    throw new Error("Bitte Mitglied auswählen.");
+  }
+
+  const { error } = await state.supabase.from("client_group_members").insert({
+    organization_id: state.organization.id,
+    group_id: values.group_id,
+    client_id: values.client_id,
+  });
+  if (error) throw error;
+
+  state.message = "Mitglied wurde zur Gruppe hinzugefügt.";
+  await loadWorkspaceData();
+  renderApp();
+}
+
+async function removeGroupMember(groupId, clientId) {
+  const { error } = await state.supabase
+    .from("client_group_members")
+    .delete()
+    .eq("organization_id", state.organization.id)
+    .eq("group_id", groupId)
+    .eq("client_id", clientId);
+  if (error) throw error;
+
+  state.message = "Mitglied wurde aus der Gruppe entfernt.";
+  await loadWorkspaceData();
+  renderApp();
+}
+
+async function deleteGroup(groupId, groupName) {
+  const confirmed = window.confirm(`Gruppe "${groupName}" löschen?\n\nDie Clients bleiben erhalten, nur die Gruppe wird entfernt.`);
+  if (!confirmed) return;
+
+  const { error } = await state.supabase
+    .from("client_groups")
+    .delete()
+    .eq("organization_id", state.organization.id)
+    .eq("id", groupId);
+  if (error) throw error;
+
+  state.message = "Gruppe wurde gelöscht.";
   await loadWorkspaceData();
   renderApp();
 }
@@ -3279,6 +3512,35 @@ app.addEventListener("click", async (event) => {
     );
     state.clientPickerOpen = true;
     refreshClientPicker();
+  }
+
+  if (target.dataset.addTaskGroup !== undefined) {
+    const select = document.querySelector("[data-task-group-select]");
+    const groupId = select?.value || "";
+    if (groupId) {
+      const memberIds = groupMembers(groupId).map((member) => member.client_id);
+      state.selectedTaskClientIds = [...new Set([...state.selectedTaskClientIds, ...memberIds])];
+      state.clientPickerOpen = false;
+      renderApp();
+    }
+  }
+
+  if (target.dataset.removeGroupMember) {
+    try {
+      await removeGroupMember(target.dataset.removeGroupMember, target.dataset.clientId);
+    } catch (error) {
+      state.error = error.message;
+      renderApp();
+    }
+  }
+
+  if (target.dataset.deleteGroup) {
+    try {
+      await deleteGroup(target.dataset.deleteGroup, target.dataset.groupName || "Gruppe");
+    } catch (error) {
+      state.error = error.message;
+      renderApp();
+    }
   }
 
   if (target.dataset.removeClient) {
