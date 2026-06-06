@@ -2539,7 +2539,22 @@ function openInviteEmail(invite) {
 
 function inviteOpeningLine(invite) {
   if (invite.role !== "client") {
-    return "Moment:um hilft dir dabei, deine Clients zwischen Terminen strukturiert zu begleiten: mit Aufgaben, Reflexionen, Erinnerungen und einem klaren Überblick über Fortschritte.";
+    const coachTexts = {
+      generic_coaching:
+        "Mit Moment:um kannst du deine Clients zwischen Gesprächen mit kleinen Aufgaben, Impulsen und Reflexionen begleiten. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
+      psychotherapy:
+        "Mit Moment:um kannst du Klient:innen zwischen Sitzungen mit Übungen, Reflexionsimpulsen und sanfter Struktur begleiten. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
+      physiotherapy:
+        "Mit Moment:um kannst du Patient:innen zwischen Terminen mit Heimübungen, kurzen Rückmeldungen und Verlauf im Blick begleiten. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
+      football:
+        "Mit Moment:um kannst du Spieler:innen zwischen Trainings mit Trainingsaufgaben, Wochenzielen und Reflexionen begleiten. So bleibt das, was ihr trainiert, auch zwischen den Einheiten in Bewegung.",
+      dog_training:
+        "Mit Moment:um kannst du Halter:innen zwischen Einheiten mit Trainingsplänen, Beobachtungsaufgaben und kurzen Reflexionen begleiten. So bleibt das, was ihr übt, auch im Alltag in Bewegung.",
+      nutrition:
+        "Mit Moment:um kannst du Clients zwischen Terminen mit Ernährungszielen, Gewohnheitsimpulsen und kurzen Check-ins begleiten. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
+    };
+
+    return coachTexts[state.organization?.industry_preset_id] || coachTexts.generic_coaching;
   }
 
   const texts = {
@@ -2561,7 +2576,6 @@ function inviteOpeningLine(invite) {
 }
 
 function inviteEmoji(invite) {
-  if (invite.role !== "client") return "";
   return {
     generic_coaching: " 💬",
     psychotherapy: " 🌿",
