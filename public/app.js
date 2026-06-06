@@ -2572,11 +2572,22 @@ function inviteEmoji(invite) {
   }[state.organization?.industry_preset_id] || " 💬";
 }
 
+function inviteTargetLabel() {
+  return {
+    generic_coaching: "Clients",
+    psychotherapy: "Klient:innen",
+    physiotherapy: "Patient:innen",
+    football: "Spieler:innen",
+    dog_training: "Halter:innen",
+    nutrition: "Clients",
+  }[state.organization?.industry_preset_id] || "Clients";
+}
+
 function inviteMessage(invite, inviteUrl) {
   const isClientInvite = invite.role === "client";
   const accessLine = isClientInvite
     ? "Nach dem Öffnen des Links kannst du deinen Zugang erstellen."
-    : "Beim Erstellen deines Zugangs legst du Name, Passwort, Firmenname und Branche fest. Danach bekommst du deinen eigenen Workspace.";
+    : `Beim Erstellen deines Zugangs legst du Name, Passwort, Firmenname und Branche fest. Danach bekommst du deinen eigenen Workspace und kannst deine ${inviteTargetLabel()} einladen.`;
 
   return {
     email: invite.email,

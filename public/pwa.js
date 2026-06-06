@@ -9,7 +9,7 @@
   });
 
   window.addEventListener("load", function onLoad() {
-    navigator.serviceWorker.register("./sw.js?v=20260606-invites").catch(function ignoreRegistrationError() {
+    navigator.serviceWorker.register("./sw.js?v=20260606-coach-invites").catch(function ignoreRegistrationError() {
       // The app still works as a normal website if service workers are unavailable.
     });
   });
