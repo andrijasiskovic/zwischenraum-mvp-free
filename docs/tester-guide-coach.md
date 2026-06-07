@@ -69,9 +69,8 @@ Beim Erstellen einer Aufgabe kannst du ein Template auswählen. Titel und Beschr
 Öffne die Rubrik für deine Personen, z. B. `Clients`, `Spieler:in`, `Halter:in` oder `Patient:in`.
 
 1. Gib die E-Mail-Adresse ein.
-2. Wähle die passende Rolle.
-3. Klicke auf `Code erstellen`.
-4. Wähle, wie du die Einladung senden möchtest, z. B. Teilen, Mail-App, Gmail oder Text kopieren.
+2. Klicke auf `Code erstellen`. Als Coach kannst du nur Clients bzw. Personen deiner eigenen Betreuung einladen.
+3. Wähle, wie du die Einladung senden möchtest, z. B. Teilen, Mail-App, Gmail oder Text kopieren.
 
 In der Testphase sind 10 aktive Client-Plätze pro Coach vorgesehen. Offene Einladungen werden angezeigt, zählen aber noch nicht als aktive Plätze.
 

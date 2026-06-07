@@ -2386,20 +2386,20 @@ function renderInviteForm() {
         <span>E-Mail</span>
         <input name="email" type="email" required placeholder="client@example.com" />
       </label>
-      <label class="field">
-        <span>Rolle</span>
-        <select name="role">
-          ${
-            role === "owner"
-              ? `
+      ${
+        role === "owner"
+          ? `
+            <label class="field">
+              <span>Rolle</span>
+              <select name="role">
                 <option value="coach">${escapeHtml(state.preset?.practitioner_label || "Coach")}</option>
                 <option value="client">${escapeHtml(state.preset?.client_label || "Client")}</option>
                 <option value="owner">Owner</option>
-              `
-              : `<option value="client">${escapeHtml(state.preset?.client_label || "Client")}</option>`
-          }
-        </select>
-      </label>
+              </select>
+            </label>
+          `
+          : `<input type="hidden" name="role" value="client" />`
+      }
       <button class="btn primary">Code erstellen</button>
       ${
         showClientLimit && clientLimitReached
@@ -3547,10 +3547,11 @@ async function deleteGroup(groupId, groupName) {
 }
 
 async function createInvite(values) {
+  const inviteRole = currentRole() === "owner" ? values.role : "client";
   const { data, error } = await state.supabase.rpc("create_invitation", {
     org_id: state.organization.id,
     invite_email: values.email,
-    invite_role: values.role,
+    invite_role: inviteRole,
     client_coach: state.session.user.id,
   });
   if (error) {

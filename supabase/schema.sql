@@ -901,8 +901,8 @@ begin
     raise exception 'Not allowed';
   end if;
 
-  if invite_role = 'owner' and not public.has_org_role(org_id, array['owner']::public.member_role[]) then
-    raise exception 'Only owners can invite owners';
+  if invite_role in ('owner', 'coach') and not public.has_org_role(org_id, array['owner']::public.member_role[]) then
+    raise exception 'Only owners can invite owners or coaches';
   end if;
 
   if invite_role = 'client' then
