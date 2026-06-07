@@ -625,6 +625,15 @@ select:focus {
   gap: 10px;
 }
 
+.new-task-btn {
+  min-height: 50px;
+  border-radius: 15px;
+  padding: 0 24px;
+  font-size: 1rem;
+  font-weight: 900;
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--primary), transparent 76%);
+}
+
 .panel,
 .empty-card {
   border-radius: 18px;

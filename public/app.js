@@ -1459,7 +1459,7 @@ function renderTasksPanel(withForm) {
         <div class="toolbar tasks-toolbar">
           <h2>Aufgaben</h2>
           <div class="task-toolbar-actions">
-            <button class="btn primary" data-action="open-task-composer">Neue Aufgabe</button>
+            <button class="btn primary new-task-btn" data-action="open-task-composer">Neue Aufgabe</button>
             <div class="segmented">
               ${filterButton("all", "Alle")}
               ${filterButton("open", "Offen")}
