@@ -280,6 +280,13 @@ textarea {
   display: none;
 }
 
+.file-selection-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
 .file-selection-chip {
   max-width: 100%;
   border: 1px solid rgba(223, 221, 213, 0.92);
@@ -379,6 +386,13 @@ select:focus {
   border-radius: 10px;
   padding: 0 10px;
   font-size: 0.84rem;
+}
+
+.btn.tiny {
+  min-height: 28px;
+  border-radius: 9px;
+  padding: 0 9px;
+  font-size: 0.76rem;
 }
 
 .btn.subtle-danger {

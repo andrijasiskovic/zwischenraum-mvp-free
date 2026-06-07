@@ -54,6 +54,8 @@ const state = {
   reminderModalClientId: "",
   selectedTaskClientIds: [],
   selectedTaskGroupIds: [],
+  pendingTaskFiles: [],
+  pendingReflectionFiles: [],
   clientSearch: "",
   clientPickerOpen: false,
   mobileMenuOpen: false,
@@ -335,20 +337,53 @@ function normalizedPasteHtml(event) {
   return textToRichHtml(text);
 }
 
-function renderFileField(label = "Dateien anhängen") {
+function selectedFilesForScope(scope = "") {
+  if (scope === "task") return state.pendingTaskFiles;
+  if (scope === "reflection") return state.pendingReflectionFiles;
+  return [];
+}
+
+function setSelectedFilesForScope(scope = "", files = []) {
+  if (scope === "task") state.pendingTaskFiles = files;
+  if (scope === "reflection") state.pendingReflectionFiles = files;
+}
+
+function renderFileSelection(files = [], scope = "") {
+  if (!files.length) return "";
   return `
-    <label class="field file-field">
+    <div class="file-selection-list">
+      ${files
+        .map(
+          (file) => `
+            <span class="file-selection-chip">
+              <strong>${escapeHtml(file.name || "Datei")}</strong>
+              <small>${escapeHtml(formatFileSize(file.size)) || "bereit"}</small>
+            </span>
+          `,
+        )
+        .join("")}
+      ${scope ? `<button class="btn subtle tiny" type="button" data-clear-file-scope="${escapeHtml(scope)}">Auswahl entfernen</button>` : ""}
+    </div>
+  `;
+}
+
+function renderFileField(label = "Dateien anhängen", options = {}) {
+  const scope = options.scope || "";
+  const selectedFiles = selectedFilesForScope(scope);
+  return `
+    <div class="field file-field">
       <span>${escapeHtml(label)}</span>
       <input
         name="attachment_files"
         type="file"
         multiple
         data-file-input
+        data-file-scope="${escapeHtml(scope)}"
         accept="image/*,video/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
       />
       <small class="muted">Bilder, Videos, PDFs und gängige Dokumente bis 50 MB pro Datei.</small>
-      <div class="file-selection" data-file-selection aria-live="polite"></div>
-    </label>
+      <div class="file-selection" data-file-selection aria-live="polite">${renderFileSelection(selectedFiles, scope)}</div>
+    </div>
   `;
 }
 
@@ -362,21 +397,10 @@ function formatFileSize(size = 0) {
 function renderSelectedFiles(input) {
   const container = input.closest(".file-field")?.querySelector("[data-file-selection]");
   if (!container) return;
-  const files = [...(input.files || [])];
-  if (!files.length) {
-    container.innerHTML = "";
-    return;
-  }
-  container.innerHTML = files
-    .map(
-      (file) => `
-        <span class="file-selection-chip">
-          <strong>${escapeHtml(file.name)}</strong>
-          <small>${escapeHtml(formatFileSize(file.size))}</small>
-        </span>
-      `,
-    )
-    .join("");
+  const scope = input.dataset.fileScope || "";
+  const files = [...(input.files || [])].filter((file) => file?.name);
+  setSelectedFilesForScope(scope, files);
+  container.innerHTML = renderFileSelection(files, scope);
 }
 
 function showFormSubmitError(form, message) {
@@ -398,6 +422,7 @@ function clearFormSubmitError(form) {
 function resetTaskComposerState() {
   state.selectedTaskClientIds = [];
   state.selectedTaskGroupIds = [];
+  state.pendingTaskFiles = [];
   state.clientSearch = "";
   state.clientPickerOpen = false;
 }
@@ -1515,7 +1540,7 @@ function renderTaskForm(className = "panel") {
           <span>Fälligkeitsdatum</span>
           <input name="due_date" type="date" required value="${todayIso}" />
         </label>
-        ${renderFileField("Dateien zur Aufgabe")}
+        ${renderFileField("Dateien zur Aufgabe", { scope: "task" })}
       </section>
 
       <div class="task-create-footer">
@@ -2730,7 +2755,7 @@ function renderReflectionModal() {
         <h2>${escapeHtml(task.title)}</h2>
         <p class="muted">${escapeHtml(state.preset?.reflection_prompt || "Wie ist es dir damit gegangen?")}</p>
         ${renderRichTextField("text", "Reflexion", "", { required: true })}
-        ${renderFileField("Bilder, Videos oder Dateien zur Reflexion")}
+        ${renderFileField("Bilder, Videos oder Dateien zur Reflexion", { scope: "reflection" })}
         <label class="field">
           <span>Gefühl / Status</span>
           <select name="mood" required>
@@ -2983,7 +3008,19 @@ async function handleSubmit(event) {
   values.client_ids = new FormData(form).getAll("client_ids");
   values.group_ids = new FormData(form).getAll("group_ids");
   values.group_member_ids = new FormData(form).getAll("group_member_ids");
-  values.attachment_files = new FormData(form).getAll("attachment_files").filter((file) => file?.size > 0);
+  const directInputFiles = [...form.querySelectorAll("[data-file-input]")]
+    .flatMap((input) => [...(input.files || [])])
+    .filter((file) => file?.name);
+  values.attachment_files =
+    directInputFiles.length || !form.querySelector("[data-file-input]")
+      ? directInputFiles
+      : new FormData(form).getAll("attachment_files").filter((file) => file?.name);
+  if (action === "complete-task" && !values.attachment_files.length && state.pendingReflectionFiles.length) {
+    values.attachment_files = state.pendingReflectionFiles;
+  }
+  if (action === "create-task" && !values.attachment_files.length && state.pendingTaskFiles.length) {
+    values.attachment_files = state.pendingTaskFiles;
+  }
   state.error = "";
   state.message = "";
   clearFormSubmitError(form);
@@ -3080,6 +3117,12 @@ async function uploadAttachments(files = [], taskId, reflectionId = null) {
   const maxFileSize = 50 * 1024 * 1024;
 
   for (const [index, file] of files.entries()) {
+    if (!file?.name) {
+      throw new Error("Die ausgewählte Datei konnte nicht gelesen werden. Bitte wähle sie erneut aus.");
+    }
+    if (!file.size) {
+      throw new Error(`${file.name} konnte nicht vollständig geladen werden. Bitte wähle das Video erneut aus oder speichere es zuerst lokal auf deinem Gerät.`);
+    }
     if (file.size > maxFileSize) {
       throw new Error(`${file.name} ist größer als 50 MB.`);
     }
@@ -3878,6 +3921,7 @@ async function completeTask(values) {
   }
 
   state.modalTask = null;
+  state.pendingReflectionFiles = [];
   state.message = "Aufgabe abgeschlossen.";
   await loadWorkspaceData();
   renderApp();
@@ -4148,6 +4192,17 @@ app.addEventListener("click", async (event) => {
     return;
   }
 
+  if (target.dataset.clearFileScope) {
+    const scope = target.dataset.clearFileScope;
+    setSelectedFilesForScope(scope, []);
+    const field = target.closest(".file-field");
+    const input = field?.querySelector("[data-file-input]");
+    if (input) input.value = "";
+    const container = field?.querySelector("[data-file-selection]");
+    if (container) container.innerHTML = "";
+    return;
+  }
+
   if (target.dataset.openReader) {
     state.readerModal = target.dataset.openReader;
     state.batchModalId = "";
@@ -4197,6 +4252,7 @@ app.addEventListener("click", async (event) => {
   }
 
   if (target.dataset.complete) {
+    state.pendingReflectionFiles = [];
     state.modalTask = state.tasks.find((task) => task.id === target.dataset.complete);
     renderApp();
   }
@@ -4365,6 +4421,7 @@ app.addEventListener("click", async (event) => {
 
   if (target.dataset.action === "close-modal") {
     state.modalTask = null;
+    state.pendingReflectionFiles = [];
     renderApp();
   }
 
