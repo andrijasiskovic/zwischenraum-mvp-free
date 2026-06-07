@@ -41,7 +41,10 @@ const state = {
   resetToDashboardAfterAuth: false,
   message: "",
   error: "",
+  toast: null,
+  toastTimer: null,
   modalTask: null,
+  taskComposerOpen: false,
   readerModal: null,
   groupEditor: null,
   batchModalId: "",
@@ -76,6 +79,17 @@ function isSetupMode() {
 
 function isPlatformOwner() {
   return String(state.session?.user?.email || "").toLowerCase() === "andrija.siskovic@gmail.com";
+}
+
+function showToast(text) {
+  const id = `${Date.now()}-${Math.random()}`;
+  state.toast = { id, text };
+  if (state.toastTimer) clearTimeout(state.toastTimer);
+  state.toastTimer = window.setTimeout(() => {
+    if (state.toast?.id !== id) return;
+    state.toast = null;
+    renderApp();
+  }, 3000);
 }
 
 function pendingInviteKey(email) {
@@ -363,6 +377,13 @@ function renderSelectedFiles(input) {
       `,
     )
     .join("");
+}
+
+function resetTaskComposerState() {
+  state.selectedTaskClientIds = [];
+  state.selectedTaskGroupIds = [];
+  state.clientSearch = "";
+  state.clientPickerOpen = false;
 }
 
 function attachmentLabel(attachment) {
@@ -1138,12 +1159,18 @@ function renderApp() {
       </main>
       ${state.modalTask ? renderReflectionModal() : ""}
       ${state.readerModal ? renderReaderModal() : ""}
+      ${state.taskComposerOpen ? renderTaskComposerModal() : ""}
       ${state.groupEditor ? renderGroupModal() : ""}
       ${state.batchModalId ? renderBatchModal() : ""}
       ${state.inviteModalId ? renderInviteModal() : ""}
       ${state.reminderModalClientId ? renderReminderModal() : ""}
+      ${state.toast ? renderToast() : ""}
     </div>
   `;
+}
+
+function renderToast() {
+  return `<div class="toast" role="status" aria-live="polite">${escapeHtml(state.toast.text)}</div>`;
 }
 
 function renderMobileHeader() {
@@ -1321,11 +1348,11 @@ function renderTasks() {
 function renderTasksPanel(withForm) {
   if (withForm && isCoachRole()) {
     return `
-      <section class="task-compose-layout">
-        ${renderTaskForm()}
-        <section class="panel task-panel">
-          <div class="toolbar">
-            <h2>Aufgaben</h2>
+      <section class="panel task-panel">
+        <div class="toolbar tasks-toolbar">
+          <h2>Aufgaben</h2>
+          <div class="task-toolbar-actions">
+            <button class="btn primary" data-action="open-task-composer">Neue Aufgabe</button>
             <div class="segmented">
               ${filterButton("all", "Alle")}
               ${filterButton("open", "Offen")}
@@ -1333,10 +1360,10 @@ function renderTasksPanel(withForm) {
               ${filterButton("done", "Erledigt")}
             </div>
           </div>
-          <div class="task-list">
-            ${visibleTasks().length ? visibleTasks().map(renderTask).join("") : `<p class="muted">Keine passenden Einträge.</p>`}
-          </div>
-        </section>
+        </div>
+        <div class="task-list">
+          ${visibleTasks().length ? visibleTasks().map(renderTask).join("") : `<p class="muted">Keine passenden Einträge.</p>`}
+        </div>
       </section>
     `;
   }
@@ -1358,6 +1385,14 @@ function renderTasksPanel(withForm) {
         </div>
       </div>
     </section>
+  `;
+}
+
+function renderTaskComposerModal() {
+  return `
+    <div class="modal" data-task-composer-backdrop>
+      ${renderTaskForm("modal-card task-composer-modal")}
+    </div>
   `;
 }
 
@@ -1395,16 +1430,19 @@ function renderTask(task) {
   `;
 }
 
-function renderTaskForm() {
+function renderTaskForm(className = "panel") {
   const recipientCount = taskRecipientCount();
   return `
-    <form class="panel form-grid task-composer" data-action="create-task">
+    <form class="${escapeHtml(className)} form-grid task-composer" data-action="create-task">
       <div class="task-composer-head">
         <div>
           <span class="section-kicker">Neue Aufgabe</span>
           <h2>Aufgabe vorbereiten</h2>
         </div>
-        <span class="recipient-count-pill" data-task-recipient-count>${recipientCount} Empfänger</span>
+        <div class="task-composer-head-actions">
+          <span class="recipient-count-pill" data-task-recipient-count>${recipientCount} Empfänger</span>
+          ${state.taskComposerOpen ? `<button class="icon-btn" type="button" data-action="close-task-composer" aria-label="Aufgabe schließen">×</button>` : ""}
+        </div>
       </div>
 
       <section class="task-compose-section">
@@ -1472,6 +1510,7 @@ function renderTaskForm() {
         </div>
         <button class="btn primary" ${state.clients.length ? "" : "disabled"}>Aufgabe erstellen</button>
       </div>
+      ${state.taskComposerOpen && state.error ? `<p class="error">${escapeHtml(state.error)}</p>` : ""}
       ${state.clients.length ? "" : `<p class="muted">Lege zuerst eine Einladung fuer einen Client an.</p>`}
     </form>
   `;
@@ -3162,14 +3201,10 @@ async function createTask(values) {
       await uploadAttachments(files, task.id);
     }
   }
-  state.message =
-    clientIds.length === 1
-      ? "Aufgabe wurde erstellt."
-      : `Aufgabe wurde für ${clientIds.length} Clients erstellt.`;
-  state.selectedTaskClientIds = [];
-  state.selectedTaskGroupIds = [];
-  state.clientSearch = "";
-  state.clientPickerOpen = false;
+  state.message = "";
+  state.taskComposerOpen = false;
+  resetTaskComposerState();
+  showToast("Aufgabe erfolgreich gesendet");
   await loadWorkspaceData();
   renderApp();
 }
@@ -4015,6 +4050,13 @@ app.addEventListener("change", async (event) => {
 });
 
 app.addEventListener("click", async (event) => {
+  if (event.target.hasAttribute("data-task-composer-backdrop")) {
+    state.taskComposerOpen = false;
+    state.clientPickerOpen = false;
+    renderApp();
+    return;
+  }
+
   if (event.target.hasAttribute("data-batch-backdrop")) {
     state.batchModalId = "";
     renderApp();
@@ -4104,6 +4146,8 @@ app.addEventListener("click", async (event) => {
   if (target.dataset.view) {
     state.view = target.dataset.view;
     state.mobileMenuOpen = false;
+    state.taskComposerOpen = false;
+    state.clientPickerOpen = false;
     renderApp();
   }
 
@@ -4281,6 +4325,18 @@ app.addEventListener("click", async (event) => {
 
   if (target.dataset.action === "close-modal") {
     state.modalTask = null;
+    renderApp();
+  }
+
+  if (target.dataset.action === "open-task-composer") {
+    state.taskComposerOpen = true;
+    state.error = "";
+    renderApp();
+  }
+
+  if (target.dataset.action === "close-task-composer") {
+    state.taskComposerOpen = false;
+    state.clientPickerOpen = false;
     renderApp();
   }
 

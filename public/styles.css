@@ -599,6 +599,18 @@ select:focus {
   align-items: start;
 }
 
+.tasks-toolbar {
+  align-items: center;
+}
+
+.task-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .panel,
 .empty-card {
   border-radius: 18px;
@@ -1376,12 +1388,23 @@ button.chip.clickable:hover {
   gap: 14px;
 }
 
+.task-composer-modal {
+  width: min(100%, 880px);
+  padding: 18px;
+}
+
 .task-composer-head,
 .task-create-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.task-composer-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .task-composer-head h2 {
@@ -1645,6 +1668,41 @@ button.chip.clickable:hover {
 
 .modal-card.invite-delivery {
   width: min(100%, 860px);
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 140;
+  max-width: calc(100vw - 24px);
+  border-radius: 12px;
+  padding: 12px 18px;
+  color: white;
+  background: #09956b;
+  box-shadow: 0 12px 32px rgba(9, 149, 107, 0.28);
+  font-weight: 900;
+  text-align: center;
+  transform: translateX(-50%);
+  animation: toast-slide 3s ease both;
+}
+
+@keyframes toast-slide {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 18px);
+  }
+
+  12%,
+  88% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 18px);
+  }
 }
 
 .reader-modal {
@@ -1990,7 +2048,7 @@ button.chip.clickable:hover {
   }
 
   .modal {
-    align-items: start;
+    align-items: center;
     padding: 14px 10px;
   }
 
@@ -2116,6 +2174,15 @@ button.chip.clickable:hover {
   .client-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .task-toolbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .task-toolbar-actions > .btn {
+    width: 100%;
   }
 
   .task-row,
