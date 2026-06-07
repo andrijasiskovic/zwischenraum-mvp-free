@@ -254,6 +254,7 @@ insert into public.interface_presets (
   ('psychotherapy', 'Psychotherapie', 'Therapeut:in', 'Klient:in', 'Übung', 'Was hast du wahrgenommen und was war hilfreich oder schwierig?', '#6F8F8A', '#9B8DB8', 'https://images.unsplash.com/photo-1493836512294-502baa1986e2?auto=format&fit=crop&w=1200&q=80', '["Übungen", "Reflexion", "Stimmung"]'),
   ('physiotherapy', 'Physiotherapie', 'Physiotherapeut:in', 'Patient:in', 'Heimübung', 'Wie gut hat die Übung funktioniert und gab es Schmerzen?', '#6FA8B8', '#8EBF9F', 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?auto=format&fit=crop&w=1200&q=80', '["Übungsplan", "Schmerzskala", "Häufigkeit"]'),
   ('football', 'Fußballtraining', 'Trainer:in', 'Spieler:in', 'Trainingsaufgabe', 'Was hast du umgesetzt und was möchtest du verbessern?', '#6F9B73', '#C9B45A', 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&w=1200&q=80', '["Technik", "Athletik", "Wochenziele"]'),
+  ('martial_arts', 'Kampfsport', 'Trainer:in', 'Sportler:in', 'Trainingsaufgabe', 'Was hast du geübt, wie hat es sich angefühlt und woran möchtest du weiterarbeiten?', '#7E8F86', '#C6A878', 'https://images.unsplash.com/photo-1555597673-b21d5c935865?auto=format&fit=crop&w=1200&q=80', '["Technik", "Körpergefühl", "Disziplin"]'),
   ('dog_training', 'Hundetraining', 'Hundetrainer:in', 'Halter:in', 'Trainingsplan', 'Wie hat dein Hund reagiert und in welcher Situation habt ihr geübt?', '#B08A66', '#7D9BB3', 'https://images.unsplash.com/photo-1534361960057-19889db9621e?auto=format&fit=crop&w=1200&q=80', '["Verhalten", "Situation", "Wiederholungen"]'),
   ('nutrition', 'Ernährungsberatung', 'Ernährungsberater:in', 'Client', 'Ernährungsziel', 'Was ist dir gelungen und wo brauchst du Unterstützung?', '#C97872', '#7FAE8A', 'https://images.unsplash.com/photo-1498837167922-ddd27525d352?auto=format&fit=crop&w=1200&q=80', '["Gewohnheiten", "Mahlzeiten", "Check-ins"]')
 on conflict (id) do update
@@ -315,6 +316,7 @@ begin
         ('psychotherapy', '#6F8F8A', '#9B8DB8', '#7c3aed', '#0f766e'),
         ('physiotherapy', '#6FA8B8', '#8EBF9F', '#0f766e', '#f97316'),
         ('football', '#6F9B73', '#C9B45A', '#16a34a', '#0284c7'),
+        ('martial_arts', '#7E8F86', '#C6A878', '#7E8F86', '#C6A878'),
         ('dog_training', '#B08A66', '#7D9BB3', '#b45309', '#2563eb'),
         ('nutrition', '#C97872', '#7FAE8A', '#dc2626', '#059669')
     ) as colors(preset_id, primary_color, secondary_color, old_primary_color, old_secondary_color)
@@ -1169,6 +1171,10 @@ begin
       ('football', 'Athletik-Einheit', 'Führe die vereinbarte kurze Athletik-Einheit durch und achte auf saubere Ausführung und Belastungsgefühl.'),
       ('football', 'Spielreflexion', 'Reflektiere dein letztes Training oder Spiel: Was war stark, was willst du konkret verbessern?'),
       ('football', 'Mentales Wochenziel', 'Formuliere ein mentales Ziel für Training oder Spiel, zum Beispiel Kommunikation, Fokus oder Umgang mit Fehlern.'),
+      ('martial_arts', 'Technikdrill wiederholen', 'Übe den besprochenen Technikablauf langsam und kontrolliert. Achte auf Stand, Atmung, Balance und saubere Ausführung.'),
+      ('martial_arts', 'Beweglichkeit und Stabilität', 'Führe die vereinbarte kurze Beweglichkeits- oder Stabilitätseinheit durch und notiere, welche Bewegung sich sicherer anfühlt.'),
+      ('martial_arts', 'Rundenreflexion', 'Reflektiere dein letztes Training: Was war technisch sauber, wo hast du gezögert und woran möchtest du weiterarbeiten?'),
+      ('martial_arts', 'Mentale Vorbereitung', 'Formuliere einen Fokus für die nächste Einheit, zum Beispiel Ruhe, Distanzgefühl, Reaktion oder konsequente Grundstellung.'),
       ('dog_training', 'Signal im Alltag üben', 'Übe das vereinbarte Signal in ruhiger Umgebung und steigere die Ablenkung erst, wenn es zuverlässig klappt.'),
       ('dog_training', 'Verhalten beobachten', 'Notiere Situation, Auslöser, Reaktion deines Hundes und was du in diesem Moment gemacht hast.'),
       ('dog_training', 'Kurze Trainingseinheiten', 'Plane drei kurze Einheiten von 3 bis 5 Minuten und beende jede Einheit mit einem positiven Abschluss.'),

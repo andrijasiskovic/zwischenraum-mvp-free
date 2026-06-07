@@ -1337,6 +1337,105 @@ button.chip.clickable:hover {
   gap: 12px;
 }
 
+.task-composer {
+  gap: 14px;
+}
+
+.task-composer-head,
+.task-create-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-composer-head h2 {
+  margin: 2px 0 0;
+}
+
+.section-kicker {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.recipient-count-pill {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 8px 11px;
+  background: color-mix(in srgb, var(--primary), white 84%);
+  color: color-mix(in srgb, var(--primary), black 34%);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.task-compose-section {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(223, 221, 213, 0.78);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255, 254, 250, 0.58);
+}
+
+.task-section-title {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.task-section-title > span {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--primary), white 82%);
+  color: color-mix(in srgb, var(--primary), black 34%);
+  font-weight: 900;
+}
+
+.task-section-title h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.task-section-title p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.compact-field {
+  max-width: 100%;
+}
+
+.task-create-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  border: 1px solid rgba(223, 221, 213, 0.9);
+  border-radius: 16px;
+  padding: 11px;
+  background: rgba(255, 254, 250, 0.94);
+  box-shadow: 0 -8px 22px rgba(24, 33, 31, 0.06);
+  backdrop-filter: blur(12px);
+}
+
+.task-create-footer div {
+  display: grid;
+  gap: 2px;
+}
+
+.task-create-footer span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .client-picker {
   display: grid;
   gap: 8px;
@@ -1784,6 +1883,20 @@ button.chip.clickable:hover {
 
   .batch-summary strong {
     font-size: 1rem;
+  }
+
+  .task-composer-head,
+  .task-create-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .recipient-count-pill {
+    width: fit-content;
+  }
+
+  .task-create-footer .btn {
+    width: 100%;
   }
 }
 

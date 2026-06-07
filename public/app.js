@@ -1368,40 +1368,116 @@ function renderTask(task) {
 }
 
 function renderTaskForm() {
+  const recipientCount = taskRecipientCount();
   return `
-    <form class="panel form-grid" data-action="create-task">
-      <h2>Neue Aufgabe</h2>
-      ${renderClientPicker()}
-      ${renderTaskGroupPicker()}
-      <label class="field">
-        <span>Template</span>
-        <select name="template_id" data-template-select>
-          <option value="">Ohne Template</option>
-          ${state.templates
-            .filter((template) => template.preset_id === state.organization.industry_preset_id)
-            .map(
-              (template) =>
-                `<option value="${template.id}" data-title="${escapeHtml(template.title)}" data-description="${escapeHtml(richTextToHtml(template.description))}">${escapeHtml(template.title)}</option>`,
-            )
-            .join("")}
-        </select>
-      </label>
-      <label class="field">
-        <span>Titel</span>
-        <input name="title" data-task-title required placeholder="z. B. Atemübung 3x diese Woche" />
-      </label>
-      ${renderRichTextField("description", "Beschreibung", "", {
-        placeholder: "Was soll umgesetzt werden?",
-      }).replace("data-rich-editor", "data-rich-editor data-task-description")}
-      ${renderFileField("Dateien zur Aufgabe")}
-      <label class="field">
-        <span>Fälligkeitsdatum</span>
-        <input name="due_date" type="date" required value="${todayIso}" />
-      </label>
-      <button class="btn primary" ${state.clients.length ? "" : "disabled"}>Erstellen</button>
+    <form class="panel form-grid task-composer" data-action="create-task">
+      <div class="task-composer-head">
+        <div>
+          <span class="section-kicker">Neue Aufgabe</span>
+          <h2>Aufgabe vorbereiten</h2>
+        </div>
+        <span class="recipient-count-pill" data-task-recipient-count>${recipientCount} Empfänger</span>
+      </div>
+
+      <section class="task-compose-section">
+        <div class="task-section-title">
+          <span>1</span>
+          <div>
+            <h3>Empfänger</h3>
+            <p>Wähle einzelne Personen, Gruppen oder beides. Doppelte Empfänger werden automatisch zusammengeführt.</p>
+          </div>
+        </div>
+        ${renderClientPicker()}
+        ${renderTaskGroupPicker()}
+      </section>
+
+      <section class="task-compose-section">
+        <div class="task-section-title">
+          <span>2</span>
+          <div>
+            <h3>Inhalt</h3>
+            <p>Starte optional mit einem Template und passe Titel sowie Beschreibung an.</p>
+          </div>
+        </div>
+        <label class="field compact-field">
+          <span>Template verwenden</span>
+          <select name="template_id" data-template-select>
+            <option value="">Ohne Template</option>
+            ${state.templates
+              .filter((template) => template.preset_id === state.organization.industry_preset_id)
+              .map(
+                (template) =>
+                  `<option value="${template.id}" data-title="${escapeHtml(template.title)}" data-description="${escapeHtml(richTextToHtml(template.description))}">${escapeHtml(template.title)}</option>`,
+              )
+              .join("")}
+          </select>
+        </label>
+        <label class="field">
+          <span>Titel</span>
+          <input name="title" data-task-title required placeholder="${escapeHtml(taskTitlePlaceholder())}" />
+        </label>
+        ${renderRichTextField("description", "Beschreibung", "", {
+          placeholder: "Was soll umgesetzt werden?",
+        }).replace("data-rich-editor", "data-rich-editor data-task-description")}
+      </section>
+
+      <section class="task-compose-section">
+        <div class="task-section-title">
+          <span>3</span>
+          <div>
+            <h3>Details</h3>
+            <p>Lege Fälligkeit und optionale Unterlagen fest.</p>
+          </div>
+        </div>
+        <label class="field">
+          <span>Fälligkeitsdatum</span>
+          <input name="due_date" type="date" required value="${todayIso}" />
+        </label>
+        ${renderFileField("Dateien zur Aufgabe")}
+      </section>
+
+      <div class="task-create-footer">
+        <div>
+          <strong data-task-recipient-total>${recipientCount} Empfänger</strong>
+          <span data-task-recipient-help>${recipientCount ? "Bereit zum Erstellen, sobald Titel und Datum gesetzt sind." : "Wähle mindestens eine Person oder Gruppe."}</span>
+        </div>
+        <button class="btn primary" ${state.clients.length ? "" : "disabled"}>Aufgabe erstellen</button>
+      </div>
       ${state.clients.length ? "" : `<p class="muted">Lege zuerst eine Einladung fuer einen Client an.</p>`}
     </form>
   `;
+}
+
+function taskRecipientCount() {
+  const groupClientIds = state.selectedTaskGroupIds.flatMap((groupId) => groupMembers(groupId).map((member) => member.client_id));
+  return new Set([...state.selectedTaskClientIds, ...groupClientIds]).size;
+}
+
+function taskTitlePlaceholder() {
+  return (
+    {
+      psychotherapy: "z. B. Achtsamkeitsübung 3x diese Woche",
+      physiotherapy: "z. B. Heimübung Knie-Stabilität",
+      football: "z. B. Techniktraining Ballkontrolle",
+      martial_arts: "z. B. Technikdrill Grundstellung",
+      dog_training: "z. B. Rückruf in ruhiger Umgebung üben",
+      nutrition: "z. B. Trinkroutine für drei Tage testen",
+      generic_coaching: "z. B. Wochenfokus konkret umsetzen",
+    }[state.organization?.industry_preset_id] || "z. B. Wochenfokus konkret umsetzen"
+  );
+}
+
+function refreshTaskRecipientSummary() {
+  const count = taskRecipientCount();
+  document.querySelectorAll("[data-task-recipient-count], [data-task-recipient-total]").forEach((item) => {
+    item.textContent = `${count} Empfänger`;
+  });
+  const help = document.querySelector("[data-task-recipient-help]");
+  if (help) {
+    help.textContent = count
+      ? "Bereit zum Erstellen, sobald Titel und Datum gesetzt sind."
+      : "Wähle mindestens eine Person oder Gruppe.";
+  }
 }
 
 function renderClientPicker() {
@@ -3181,6 +3257,8 @@ function inviteOpeningLine(invite) {
         "Mit Moment:um kannst du Patient:innen zwischen Terminen mit Heimübungen, kurzen Rückmeldungen und Verlauf im Blick begleiten. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
       football:
         "Mit Moment:um kannst du Spieler:innen zwischen Trainings mit Trainingsaufgaben, Wochenzielen und Reflexionen begleiten. So bleibt das, was ihr trainiert, auch zwischen den Einheiten in Bewegung.",
+      martial_arts:
+        "Mit Moment:um kannst du Sportler:innen zwischen Einheiten mit Technikaufgaben, Fokusimpulsen und Reflexionen begleiten. So bleibt das, was ihr trainiert, auch zwischen den Einheiten in Bewegung.",
       dog_training:
         "Mit Moment:um kannst du Halter:innen zwischen Einheiten mit Trainingsplänen, Beobachtungsaufgaben und kurzen Reflexionen begleiten. So bleibt das, was ihr übt, auch im Alltag in Bewegung.",
       nutrition:
@@ -3199,6 +3277,8 @@ function inviteOpeningLine(invite) {
       "Hier bekommst du Heimübungen und kurze Rückfragen für die Zeit zwischen deinen Terminen. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
     football:
       "Hier bekommst du Trainingsaufgaben und Wochenziele für die Zeit zwischen den Trainings. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
+    martial_arts:
+      "Hier bekommst du Technikaufgaben, Fokusimpulse und kurze Reflexionen für die Zeit zwischen den Trainings. So bleibt das, was ihr übt, auch zwischen den Einheiten in Bewegung.",
     dog_training:
       "Hier bekommst du Trainingspläne und Beobachtungsaufgaben für den Alltag mit deinem Hund. So bleibt das, was ihr besprecht, auch im Alltag in Bewegung.",
     nutrition:
@@ -3214,6 +3294,7 @@ function inviteEmoji(invite) {
     psychotherapy: " 🌿",
     physiotherapy: " 🧘",
     football: " ⚽",
+    martial_arts: " 🥋",
     dog_training: " 🐾",
     nutrition: " 🥗",
   }[state.organization?.industry_preset_id] || " 💬";
@@ -3225,6 +3306,7 @@ function inviteTargetLabel() {
     psychotherapy: "Klient:innen",
     physiotherapy: "Patient:innen",
     football: "Spieler:innen",
+    martial_arts: "Sportler:innen",
     dog_training: "Halter:innen",
     nutrition: "Clients",
   }[state.organization?.industry_preset_id] || "Clients";
@@ -3375,6 +3457,12 @@ function reminderCopy() {
       intro: "du hast noch offene Aufgaben in Moment:um ⚽",
       body:
         "Die entscheidenden Entwicklungsschritte passieren oft zwischen den Trainingseinheiten. Nutze die Zeit, um an deinen Fähigkeiten zu arbeiten und deinem nächsten Ziel näherzukommen.",
+    },
+    martial_arts: {
+      subject: "Erinnerung: Bleib fokussiert in deinem Training",
+      intro: "du hast noch offene Aufgaben in Moment:um 🥋",
+      body:
+        "Konstante Entwicklung entsteht durch saubere Wiederholung, Aufmerksamkeit und Fokus. Bleib dran und nutze die Zeit zwischen den Einheiten, um Technik, Körpergefühl und Haltung zu stärken.",
     },
     dog_training: {
       subject: "Erinnerung: Zeit für eure nächste Übung",
@@ -3824,6 +3912,7 @@ app.addEventListener("change", async (event) => {
       }
       state.selectedTaskGroupIds = [...new Set([...state.selectedTaskGroupIds, groupId])];
       refreshTaskGroupPicker();
+      refreshTaskRecipientSummary();
     }
     return;
   }
@@ -3963,6 +4052,7 @@ app.addEventListener("click", async (event) => {
     state.clientSearch = "";
     state.clientPickerOpen = true;
     refreshClientPicker();
+    refreshTaskRecipientSummary();
   }
 
   if (target.dataset.unselectTaskClient) {
@@ -3971,11 +4061,13 @@ app.addEventListener("click", async (event) => {
     );
     state.clientPickerOpen = true;
     refreshClientPicker();
+    refreshTaskRecipientSummary();
   }
 
   if (target.dataset.unselectTaskGroup) {
     state.selectedTaskGroupIds = state.selectedTaskGroupIds.filter((groupId) => groupId !== target.dataset.unselectTaskGroup);
     refreshTaskGroupPicker();
+    refreshTaskRecipientSummary();
   }
 
   if (target.dataset.editGroup) {
