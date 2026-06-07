@@ -544,6 +544,17 @@ const formatDate = (date) =>
     year: "numeric",
   }).format(new Date(`${date}T12:00:00`));
 
+const formatDateTime = (value) =>
+  value
+    ? new Intl.DateTimeFormat("de-AT", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(value))
+    : "";
+
 const isOverdue = (task) => task.status === "open" && task.due_date < todayIso;
 const currentRole = () =>
   state.memberships.find((item) => item.organization_id === state.organization?.id)?.role || "";
@@ -1404,20 +1415,8 @@ function renderDashboard() {
       ${metricCard("Erledigt", data.done)}
       ${metricCard("Umsetzung", `${data.rate}%`)}
     </section>
-    <section class="grid two dashboard-grid">
+    <section class="dashboard-task-grid">
       ${renderTasksPanel(false)}
-      <div class="panel dashboard-reflections">
-        <div class="toolbar">
-          <h2>Neueste Reflexionen</h2>
-        </div>
-        <div class="task-list">
-          ${
-            state.reflections.length
-              ? state.reflections.slice(0, 6).map(renderReflection).join("")
-              : `<p class="muted">Noch keine Reflexionen vorhanden.</p>`
-          }
-        </div>
-      </div>
     </section>
   `;
 }
@@ -2708,6 +2707,9 @@ function readerData() {
     const person = isCoachRole() ? personName(task.client, "Client") : personName(task.coach, "Coach");
     const status = task.status === "done" ? "Erledigt" : isOverdue(task) ? "Überfällig" : "Offen";
     const statusClass = task.status === "done" ? "done" : isOverdue(task) ? "overdue" : "";
+    const taskReflections = [...(task.reflections || [])].sort(
+      (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
+    );
     const personMeta =
       isCoachRole() && task.client_id
         ? { label: person, clientId: task.client_id, className: "clickable" }
@@ -2722,8 +2724,37 @@ function readerData() {
         personMeta,
         { label: status, className: statusClass },
         { label: `Fällig ${formatDate(task.due_date)}` },
-        task.reflections?.length ? { label: "Reflexion vorhanden", className: "done" } : null,
+        task.completed_at ? { label: `Erledigt ${formatDateTime(task.completed_at)}`, className: "done" } : null,
+        taskReflections.length ? { label: `${taskReflections.length} Reflexion${taskReflections.length === 1 ? "" : "en"}`, className: "done" } : null,
       ].filter(Boolean),
+      sections:
+        task.status === "done" || taskReflections.length
+          ? [
+              {
+                title: "Aufgabe",
+                body: task.description,
+                emptyText: "Keine Beschreibung",
+                attachments: task.attachments || [],
+                meta: [
+                  { label: `Ursprünglich fällig ${formatDate(task.due_date)}` },
+                  task.completed_at ? { label: `Erledigt ${formatDateTime(task.completed_at)}`, className: "done" } : null,
+                ].filter(Boolean),
+              },
+              ...taskReflections.map((reflection, index) => ({
+                title: taskReflections.length > 1 ? `Reflexion ${index + 1}` : "Reflexion",
+                body: reflection.text,
+                emptyText: "Keine Reflexion vorhanden.",
+                attachments: reflection.attachments || [],
+                meta: [
+                  reflection.mood ? { label: reflection.mood } : null,
+                  reflection.created_at ? { label: `Abgegeben ${formatDateTime(reflection.created_at)}` } : null,
+                  reflection.attachments?.length
+                    ? { label: `${reflection.attachments.length} Anhang${reflection.attachments.length === 1 ? "" : "e"}` }
+                    : null,
+                ].filter(Boolean),
+              })),
+            ]
+          : null,
     };
   }
 
@@ -2770,6 +2801,21 @@ function renderReaderMeta(item) {
   return `<span class="${classes}">${escapeHtml(item.label)}</span>`;
 }
 
+function renderReaderSection(section) {
+  return `
+    <article class="reader-section">
+      <header>
+        <h3>${escapeHtml(section.title)}</h3>
+        ${section.meta?.length ? `<div class="chips">${section.meta.map(renderReaderMeta).join("")}</div>` : ""}
+      </header>
+      <div class="reader-section-body">
+        ${richTextToHtml(section.body) || `<p>${escapeHtml(section.emptyText || "Keine Inhalte vorhanden.")}</p>`}
+      </div>
+      ${renderAttachmentList(section.attachments || [])}
+    </article>
+  `;
+}
+
 function renderReaderModal() {
   const data = readerData();
   if (!data) return "";
@@ -2788,8 +2834,11 @@ function renderReaderModal() {
           ${data.meta.map(renderReaderMeta).join("")}
         </div>
         <div class="reader-body">
-          ${richTextToHtml(data.body) || `<p>${escapeHtml(data.emptyText)}</p>`}
-          ${renderAttachmentList(data.attachments)}
+          ${
+            data.sections?.length
+              ? `<div class="reader-sections">${data.sections.map(renderReaderSection).join("")}</div>`
+              : `${richTextToHtml(data.body) || `<p>${escapeHtml(data.emptyText)}</p>`}${renderAttachmentList(data.attachments)}`
+          }
         </div>
       </section>
     </div>

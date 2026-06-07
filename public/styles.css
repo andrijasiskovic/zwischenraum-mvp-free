@@ -1830,6 +1830,34 @@ button.chip.clickable:hover {
   font-weight: 750;
 }
 
+.reader-sections {
+  display: grid;
+  gap: 14px;
+}
+
+.reader-section {
+  border: 1px solid rgba(223, 221, 213, 0.82);
+  border-radius: 16px;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  background: rgba(255, 254, 250, 0.72);
+}
+
+.reader-section header {
+  display: grid;
+  gap: 8px;
+}
+
+.reader-section h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.reader-section-body {
+  color: #26302d;
+}
+
 .group-modal-card {
   width: min(100%, 760px);
   padding: 0;
