@@ -379,6 +379,22 @@ function renderSelectedFiles(input) {
     .join("");
 }
 
+function showFormSubmitError(form, message) {
+  const errorEl = form.querySelector("[data-submit-error]");
+  if (!errorEl) return false;
+  errorEl.textContent = message;
+  errorEl.hidden = false;
+  errorEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  return true;
+}
+
+function clearFormSubmitError(form) {
+  const errorEl = form.querySelector("[data-submit-error]");
+  if (!errorEl) return;
+  errorEl.textContent = "";
+  errorEl.hidden = true;
+}
+
 function resetTaskComposerState() {
   state.selectedTaskClientIds = [];
   state.selectedTaskGroupIds = [];
@@ -1510,7 +1526,7 @@ function renderTaskForm(className = "panel") {
         </div>
         <button class="btn primary" ${state.clients.length ? "" : "disabled"}>Aufgabe erstellen</button>
       </div>
-      ${state.taskComposerOpen && state.error ? `<p class="error">${escapeHtml(state.error)}</p>` : ""}
+      <p class="form-submit-error" data-submit-error ${state.taskComposerOpen && state.error ? "" : "hidden"}>${state.taskComposerOpen && state.error ? escapeHtml(state.error) : ""}</p>
       ${state.clients.length ? "" : `<p class="muted">Lege zuerst eine Einladung fuer einen Client an.</p>`}
     </form>
   `;
@@ -2729,6 +2745,7 @@ function renderReflectionModal() {
           <button type="button" class="btn" data-action="close-modal">Abbrechen</button>
           <button class="btn primary">Abschließen</button>
         </div>
+        <p class="form-submit-error" data-submit-error hidden></p>
       </form>
     </div>
   `;
@@ -2969,6 +2986,7 @@ async function handleSubmit(event) {
   values.attachment_files = new FormData(form).getAll("attachment_files").filter((file) => file?.size > 0);
   state.error = "";
   state.message = "";
+  clearFormSubmitError(form);
 
   try {
     const missingRichText = [...form.querySelectorAll("[data-rich-required='true']")].find(
@@ -2994,6 +3012,9 @@ async function handleSubmit(event) {
     if (action === "create-note") await createNote(values);
   } catch (error) {
     state.error = error.message;
+    if (["complete-task", "create-task"].includes(action) && showFormSubmitError(form, error.message)) {
+      return;
+    }
     if (inviteParams().hasInviteLink) {
       renderAuth();
     } else if (state.organization) {
@@ -3095,16 +3116,31 @@ function readableUploadError(error) {
   const message = String(error?.message || "").toLowerCase();
   const status = String(error?.statusCode || error?.status || "");
 
-  if (missingAttachmentSchema(error) || message.includes("create_reflection_for_task")) {
+  if (
+    missingAttachmentSchema(error) ||
+    message.includes("create_reflection_for_task") ||
+    message.includes("finish_task_after_reflection") ||
+    (message.includes("function") && message.includes("does not exist"))
+  ) {
     return "Dateiupload ist vorbereitet, aber das neue Supabase-SQL muss noch ausgeführt werden. Bitte zuerst supabase/schema.sql im SQL Editor ausführen.";
   }
 
-  if (message.includes("exceeded") || message.includes("too large") || message.includes("payload") || status === "413") {
-    return "Die Datei ist zu groß. Bitte verwende pro Datei maximal 50 MB.";
+  if (
+    message.includes("exceeded") ||
+    message.includes("too large") ||
+    message.includes("payload") ||
+    message.includes("file size") ||
+    status === "413"
+  ) {
+    return "Die Datei ist zu groß oder der Supabase-Speicher ist noch auf das alte Limit gesetzt. Bitte supabase/schema.sql erneut ausführen; danach sind bis zu 50 MB pro Datei möglich.";
   }
 
   if (message.includes("row-level security") || message.includes("policy") || message.includes("unauthorized")) {
     return "Die Datei konnte wegen einer Speicher-Berechtigung nicht hochgeladen werden. Bitte Supabase-SQL aktualisieren und erneut versuchen.";
+  }
+
+  if (message.includes("bucket") || message.includes("storage")) {
+    return "Der Datei-Speicher ist noch nicht richtig vorbereitet. Bitte supabase/schema.sql erneut im Supabase SQL Editor ausführen.";
   }
 
   return error?.message || "Die Datei konnte nicht hochgeladen werden. Bitte versuche es erneut.";
@@ -3831,7 +3867,11 @@ async function completeTask(values) {
       if (finishError) throw finishError;
     } catch (error) {
       if (reflectionId) {
-        await state.supabase.rpc("delete_reflection_draft", { reflection_id: reflectionId });
+        try {
+          await state.supabase.rpc("delete_reflection_draft", { reflection_id: reflectionId });
+        } catch {
+          // Keep the original upload error visible to the client.
+        }
       }
       throw new Error(readableUploadError(error));
     }

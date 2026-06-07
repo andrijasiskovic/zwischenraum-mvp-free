@@ -1642,6 +1642,22 @@ button.chip.clickable:hover {
   color: var(--danger);
 }
 
+.form-submit-error {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--danger), white 62%);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger), white 91%);
+  font-size: 0.92rem;
+  font-weight: 750;
+  line-height: 1.36;
+}
+
+.form-submit-error[hidden] {
+  display: none;
+}
+
 .success {
   color: var(--good);
 }
