@@ -1395,7 +1395,6 @@ function renderTopbar(role) {
         <h1>${escapeHtml(state.view === "dashboard" ? "Dashboard" : navTitle())}</h1>
         <p>${escapeHtml(subtitle)}</p>
       </div>
-      <button class="btn" data-action="reload">Aktualisieren</button>
     </header>
   `;
 }
@@ -1455,11 +1454,13 @@ function renderTasks() {
 function renderTasksPanel(withForm) {
   if (withForm && isCoachRole()) {
     return `
+      <section class="task-create-standalone">
+        <button class="btn primary new-task-btn" data-action="open-task-composer">Neue Aufgabe</button>
+      </section>
       <section class="panel task-panel">
         <div class="toolbar tasks-toolbar">
           <h2>Aufgaben</h2>
           <div class="task-toolbar-actions">
-            <button class="btn primary new-task-btn" data-action="open-task-composer">Neue Aufgabe</button>
             <div class="segmented">
               ${filterButton("all", "Alle")}
               ${filterButton("open", "Offen")}

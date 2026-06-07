@@ -617,6 +617,16 @@ select:focus {
   align-items: center;
 }
 
+.dashboard-task-grid {
+  margin-top: 28px;
+}
+
+.task-create-standalone {
+  margin-bottom: 18px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .task-toolbar-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2277,7 +2287,11 @@ button.chip.clickable:hover {
     justify-content: flex-start;
   }
 
-  .task-toolbar-actions > .btn {
+  .task-create-standalone {
+    margin-bottom: 18px;
+  }
+
+  .task-create-standalone > .btn {
     width: 100%;
   }
 
