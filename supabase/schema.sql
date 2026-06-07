@@ -773,7 +773,7 @@ values (
   'task-attachments',
   'task-attachments',
   false,
-  10485760,
+  52428800,
   null
 )
 on conflict (id) do update
@@ -1121,8 +1121,8 @@ declare
   new_reflection_id uuid;
 begin
   select * into task_row
-  from public.tasks
-  where id = task_id;
+  from public.tasks as tasks
+  where tasks.id = complete_task.task_id;
 
   if task_row.id is null or task_row.client_id <> auth.uid() then
     raise exception 'Task not found';
@@ -1141,6 +1141,107 @@ begin
   returning id into new_reflection_id;
 
   return new_reflection_id;
+end;
+$$;
+
+create or replace function public.create_reflection_for_task(task_id uuid, reflection_text text, reflection_mood text default null)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  task_row public.tasks;
+  new_reflection_id uuid;
+begin
+  select * into task_row
+  from public.tasks as tasks
+  where tasks.id = create_reflection_for_task.task_id;
+
+  if task_row.id is null or task_row.client_id <> auth.uid() then
+    raise exception 'Task not found';
+  end if;
+
+  if task_row.status = 'done' then
+    raise exception 'Task already completed';
+  end if;
+
+  insert into public.reflections (task_id, organization_id, client_id, text, mood)
+  values (task_id, task_row.organization_id, auth.uid(), reflection_text, reflection_mood)
+  returning id into new_reflection_id;
+
+  return new_reflection_id;
+end;
+$$;
+
+create or replace function public.finish_task_after_reflection(task_id uuid, reflection_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  task_row public.tasks;
+  reflection_row public.reflections;
+begin
+  select * into task_row
+  from public.tasks as tasks
+  where tasks.id = finish_task_after_reflection.task_id;
+
+  if task_row.id is null or task_row.client_id <> auth.uid() then
+    raise exception 'Task not found';
+  end if;
+
+  if task_row.status = 'done' then
+    raise exception 'Task already completed';
+  end if;
+
+  select * into reflection_row
+  from public.reflections as reflections
+  where reflections.id = finish_task_after_reflection.reflection_id
+    and reflections.task_id = task_row.id
+    and reflections.client_id = auth.uid();
+
+  if reflection_row.id is null then
+    raise exception 'Reflection not found';
+  end if;
+
+  update public.tasks
+  set status = 'done', completed_at = now()
+  where id = task_row.id
+    and client_id = auth.uid()
+    and status = 'open';
+end;
+$$;
+
+create or replace function public.delete_reflection_draft(reflection_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  reflection_row public.reflections;
+  task_row public.tasks;
+begin
+  select * into reflection_row
+  from public.reflections as reflections
+  where reflections.id = delete_reflection_draft.reflection_id
+    and reflections.client_id = auth.uid();
+
+  if reflection_row.id is null then
+    return;
+  end if;
+
+  select * into task_row
+  from public.tasks as tasks
+  where tasks.id = reflection_row.task_id;
+
+  if task_row.status = 'open' then
+    delete from public.reflections as reflections
+    where reflections.id = reflection_row.id
+      and reflections.client_id = auth.uid();
+  end if;
 end;
 $$;
 
@@ -1405,6 +1506,9 @@ grant execute on function public.create_invitation(uuid, text, public.member_rol
 grant execute on function public.accept_invitation(text, text, text) to authenticated;
 grant execute on function public.get_invitation_info(text, text) to anon, authenticated;
 grant execute on function public.complete_task(uuid, text, text) to authenticated;
+grant execute on function public.create_reflection_for_task(uuid, text, text) to authenticated;
+grant execute on function public.finish_task_after_reflection(uuid, uuid) to authenticated;
+grant execute on function public.delete_reflection_draft(uuid) to authenticated;
 grant execute on function public.seed_task_templates_for_org(uuid, text) to authenticated;
 grant execute on function public.remove_client_from_workspace(uuid, uuid) to authenticated;
 grant execute on function public.update_workspace_preset(uuid, text) to authenticated;

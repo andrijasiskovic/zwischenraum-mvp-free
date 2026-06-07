@@ -270,6 +270,41 @@ textarea {
   font-size: 0.8rem;
 }
 
+.file-selection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.file-selection:empty {
+  display: none;
+}
+
+.file-selection-chip {
+  max-width: 100%;
+  border: 1px solid rgba(223, 221, 213, 0.92);
+  border-radius: 999px;
+  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: color-mix(in srgb, var(--primary), white 92%);
+  color: #303936;
+  font-size: 0.8rem;
+}
+
+.file-selection-chip strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-selection-chip small {
+  flex: 0 0 auto;
+  color: #6c7672;
+  font-weight: 800;
+}
+
 .rich-preview {
   display: grid;
   gap: 5px;

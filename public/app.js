@@ -329,17 +329,44 @@ function renderFileField(label = "Dateien anhängen") {
         name="attachment_files"
         type="file"
         multiple
+        data-file-input
         accept="image/*,video/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
       />
       <small class="muted">Bilder, Videos, PDFs und gängige Dokumente bis 50 MB pro Datei.</small>
+      <div class="file-selection" data-file-selection aria-live="polite"></div>
     </label>
   `;
 }
 
+function formatFileSize(size = 0) {
+  const numericSize = Number(size || 0);
+  if (numericSize >= 1048576) return `${(numericSize / 1048576).toFixed(1)} MB`;
+  if (numericSize >= 1024) return `${Math.round(numericSize / 1024)} KB`;
+  return numericSize ? `${numericSize} B` : "";
+}
+
+function renderSelectedFiles(input) {
+  const container = input.closest(".file-field")?.querySelector("[data-file-selection]");
+  if (!container) return;
+  const files = [...(input.files || [])];
+  if (!files.length) {
+    container.innerHTML = "";
+    return;
+  }
+  container.innerHTML = files
+    .map(
+      (file) => `
+        <span class="file-selection-chip">
+          <strong>${escapeHtml(file.name)}</strong>
+          <small>${escapeHtml(formatFileSize(file.size))}</small>
+        </span>
+      `,
+    )
+    .join("");
+}
+
 function attachmentLabel(attachment) {
-  const size = Number(attachment.file_size || 0);
-  const formattedSize =
-    size >= 1048576 ? `${(size / 1048576).toFixed(1)} MB` : size >= 1024 ? `${Math.round(size / 1024)} KB` : "";
+  const formattedSize = formatFileSize(attachment.file_size);
   return formattedSize ? `${attachment.file_name} · ${formattedSize}` : attachment.file_name;
 }
 
@@ -3025,6 +3052,25 @@ async function uploadAttachments(files = [], taskId, reflectionId = null) {
   }
 }
 
+function readableUploadError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  const status = String(error?.statusCode || error?.status || "");
+
+  if (missingAttachmentSchema(error) || message.includes("create_reflection_for_task")) {
+    return "Dateiupload ist vorbereitet, aber das neue Supabase-SQL muss noch ausgeführt werden. Bitte zuerst supabase/schema.sql im SQL Editor ausführen.";
+  }
+
+  if (message.includes("exceeded") || message.includes("too large") || message.includes("payload") || status === "413") {
+    return "Die Datei ist zu groß. Bitte verwende pro Datei maximal 50 MB.";
+  }
+
+  if (message.includes("row-level security") || message.includes("policy") || message.includes("unauthorized")) {
+    return "Die Datei konnte wegen einer Speicher-Berechtigung nicht hochgeladen werden. Bitte Supabase-SQL aktualisieren und erneut versuchen.";
+  }
+
+  return error?.message || "Die Datei konnte nicht hochgeladen werden. Bitte versuche es erneut.";
+}
+
 async function openAttachment(attachmentId) {
   const attachment = state.attachments.find((item) => item.id === attachmentId);
   if (!attachment) return;
@@ -3718,18 +3764,44 @@ async function completeTask(values) {
     await ensureAttachmentSupport();
   }
 
-  const { data: reflectionId, error } = await state.supabase.rpc("complete_task", {
-    task_id: state.modalTask.id,
-    reflection_text: richTextToHtml(values.text),
-    reflection_mood: values.mood,
-  });
-  if (error) throw error;
-  if (files.length) {
-    if (!reflectionId) {
-      throw new Error("Die Aufgabe wurde abgeschlossen, aber die Reflexions-ID fehlt. Bitte Supabase-SQL aktualisieren.");
+  const reflectionText = richTextToHtml(values.text);
+
+  if (!files.length) {
+    const { error } = await state.supabase.rpc("complete_task", {
+      task_id: state.modalTask.id,
+      reflection_text: reflectionText,
+      reflection_mood: values.mood,
+    });
+    if (error) throw error;
+  } else {
+    let reflectionId = "";
+    try {
+      const { data, error } = await state.supabase.rpc("create_reflection_for_task", {
+        task_id: state.modalTask.id,
+        reflection_text: reflectionText,
+        reflection_mood: values.mood,
+      });
+      if (error) throw error;
+      reflectionId = data;
+      if (!reflectionId) {
+        throw new Error("Die Reflexion konnte nicht vorbereitet werden. Bitte Supabase-SQL aktualisieren.");
+      }
+
+      await uploadAttachments(files, state.modalTask.id, reflectionId);
+
+      const { error: finishError } = await state.supabase.rpc("finish_task_after_reflection", {
+        task_id: state.modalTask.id,
+        reflection_id: reflectionId,
+      });
+      if (finishError) throw finishError;
+    } catch (error) {
+      if (reflectionId) {
+        await state.supabase.rpc("delete_reflection_draft", { reflection_id: reflectionId });
+      }
+      throw new Error(readableUploadError(error));
     }
-    await uploadAttachments(files, state.modalTask.id, reflectionId);
   }
+
   state.modalTask = null;
   state.message = "Aufgabe abgeschlossen.";
   await loadWorkspaceData();
@@ -3856,6 +3928,12 @@ app.addEventListener("change", async (event) => {
   const colorInput = event.target.closest("[data-rich-color]");
   if (colorInput) {
     applyRichCommand(colorInput, "foreColor", colorInput.value);
+    return;
+  }
+
+  const fileInput = event.target.closest("[data-file-input]");
+  if (fileInput) {
+    renderSelectedFiles(fileInput);
     return;
   }
 
