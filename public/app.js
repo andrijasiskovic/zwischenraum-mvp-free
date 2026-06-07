@@ -1455,7 +1455,7 @@ function renderTasksPanel(withForm) {
   if (withForm && isCoachRole()) {
     return `
       <section class="task-create-standalone">
-        <button class="btn primary new-task-btn" data-action="open-task-composer">Neue Aufgabe</button>
+        <button class="btn primary new-task-btn" data-action="open-task-composer">+ Neue Aufgabe</button>
       </section>
       <section class="panel task-panel">
         <div class="toolbar tasks-toolbar">

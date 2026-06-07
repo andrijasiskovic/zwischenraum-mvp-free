@@ -624,7 +624,7 @@ select:focus {
 .task-create-standalone {
   margin-bottom: 18px;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .task-toolbar-actions {
