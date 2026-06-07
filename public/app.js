@@ -1440,6 +1440,7 @@ function renderTaskForm() {
         <div>
           <strong data-task-recipient-total>${recipientCount} Empfänger</strong>
           <span data-task-recipient-help>${recipientCount ? "Bereit zum Erstellen, sobald Titel und Datum gesetzt sind." : "Wähle mindestens eine Person oder Gruppe."}</span>
+          ${taskComposerNotice()}
         </div>
         <button class="btn primary" ${state.clients.length ? "" : "disabled"}>Aufgabe erstellen</button>
       </div>
@@ -1451,6 +1452,11 @@ function renderTaskForm() {
 function taskRecipientCount() {
   const groupClientIds = state.selectedTaskGroupIds.flatMap((groupId) => groupMembers(groupId).map((member) => member.client_id));
   return new Set([...state.selectedTaskClientIds, ...groupClientIds]).size;
+}
+
+function taskComposerNotice() {
+  if (!String(state.message || "").startsWith("Aufgabe wurde")) return "";
+  return `<span class="task-create-success">${escapeHtml(state.message)}</span>`;
 }
 
 function taskTitlePlaceholder() {
@@ -1497,18 +1503,18 @@ function renderClientPicker() {
   return `
     <fieldset class="field client-picker">
       <legend>${escapeHtml(state.preset?.client_label || "Client")}</legend>
-      <div class="selected-client-chips">
-        ${
-          selected.length
-            ? selected.map((item) => `
+      ${
+        selected.length
+          ? `<div class="selected-client-chips">
+              ${selected.map((item) => `
               <span class="selected-client-chip">
                 ${escapeHtml(personName(item.client, item.client_id))}
                 <button type="button" data-unselect-task-client="${item.client_id}">×</button>
               </span>
-            `).join("")
-            : `<span class="client-picker-hint">Noch kein Client ausgewählt.</span>`
-        }
-      </div>
+            `).join("")}
+            </div>`
+          : ""
+      }
       ${hiddenClientInputs}
       <div class="client-search-box">
         <input data-client-search value="${escapeHtml(state.clientSearch)}" placeholder="Client suchen oder auswählen..." autocomplete="off" />
@@ -1556,7 +1562,7 @@ function renderTaskGroupPicker() {
                   `;
                 })
                 .join("")
-            : `<span class="client-picker-hint">Optional: Gruppe auswählen.</span>`
+            : `<span class="client-picker-hint">Oder</span>`
         }
       </div>
       ${hiddenGroupInputs}

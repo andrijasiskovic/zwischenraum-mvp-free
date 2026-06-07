@@ -1436,9 +1436,20 @@ button.chip.clickable:hover {
   font-size: 0.78rem;
 }
 
+.task-create-footer .task-create-success {
+  color: var(--good);
+  font-weight: 850;
+}
+
 .client-picker {
   display: grid;
   gap: 8px;
+}
+
+.client-picker legend {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
 }
 
 .selected-client-chips {
