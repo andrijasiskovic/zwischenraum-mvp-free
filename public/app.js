@@ -329,9 +329,9 @@ function renderFileField(label = "Dateien anhängen") {
         name="attachment_files"
         type="file"
         multiple
-        accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
+        accept="image/*,video/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
       />
-      <small class="muted">Bilder, PDFs und gängige Dokumente bis 10 MB pro Datei.</small>
+      <small class="muted">Bilder, Videos, PDFs und gängige Dokumente bis 50 MB pro Datei.</small>
     </label>
   `;
 }
@@ -363,6 +363,7 @@ function renderAttachmentList(attachments = []) {
 
 function fileIcon(fileType = "") {
   if (fileType.startsWith("image/")) return "Bild";
+  if (fileType.startsWith("video/")) return "Video";
   if (fileType === "application/pdf") return "PDF";
   return "Datei";
 }
@@ -2647,7 +2648,7 @@ function renderReflectionModal() {
         <h2>${escapeHtml(task.title)}</h2>
         <p class="muted">${escapeHtml(state.preset?.reflection_prompt || "Wie ist es dir damit gegangen?")}</p>
         ${renderRichTextField("text", "Reflexion", "", { required: true })}
-        ${renderFileField("Dateien zur Reflexion")}
+        ${renderFileField("Bilder, Videos oder Dateien zur Reflexion")}
         <label class="field">
           <span>Gefühl / Status</span>
           <select name="mood" required>
@@ -2989,11 +2990,11 @@ function safeFileName(name = "datei") {
 
 async function uploadAttachments(files = [], taskId, reflectionId = null) {
   if (!files.length) return;
-  const maxFileSize = 10 * 1024 * 1024;
+  const maxFileSize = 50 * 1024 * 1024;
 
   for (const [index, file] of files.entries()) {
     if (file.size > maxFileSize) {
-      throw new Error(`${file.name} ist größer als 10 MB.`);
+      throw new Error(`${file.name} ist größer als 50 MB.`);
     }
 
     const path = [
