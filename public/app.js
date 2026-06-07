@@ -476,6 +476,15 @@ function resetTaskComposerState() {
   state.clientPickerOpen = false;
 }
 
+function uniqueById(items = []) {
+  const seen = new Set();
+  return items.filter((item) => {
+    if (!item?.id || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
 function attachmentLabel(attachment) {
   const formattedSize = formatFileSize(attachment.file_size);
   return formattedSize ? `${attachment.file_name} · ${formattedSize}` : attachment.file_name;
@@ -946,14 +955,23 @@ async function loadWorkspaceData() {
     attachments: attachmentRows.filter((attachment) => attachment.reflection_id === reflection.id),
   }));
   const taskRows = tasks.error ? [] : tasks.data || [];
-  state.tasks = taskRows.map((task) => ({
-    ...task,
-    attachments: attachmentRows.filter((attachment) => attachment.task_id === task.id && !attachment.reflection_id),
-    reflections: (task.reflections || []).map((reflection) => ({
-      ...reflection,
-      attachments: attachmentRows.filter((attachment) => attachment.reflection_id === reflection.id),
-    })),
-  }));
+  state.tasks = taskRows.map((task) => {
+    const allTaskAttachments = attachmentRows.filter((attachment) => attachment.task_id === task.id);
+    const taskReflectionRows = uniqueById([
+      ...(task.reflections || []),
+      ...reflectionRows.filter((reflection) => reflection.task_id === task.id),
+    ]);
+
+    return {
+      ...task,
+      allAttachments: allTaskAttachments,
+      attachments: allTaskAttachments.filter((attachment) => !attachment.reflection_id),
+      reflections: taskReflectionRows.map((reflection) => ({
+        ...reflection,
+        attachments: allTaskAttachments.filter((attachment) => attachment.reflection_id === reflection.id),
+      })),
+    };
+  });
   state.organizationMembers = orgMembers.data || [];
   const activeWorkspaceClientIds = activeClientMemberIds();
   state.clients = (relationships.data || []).filter((relationship) => activeWorkspaceClientIds.has(relationship.client_id));
@@ -2710,6 +2728,32 @@ function readerData() {
     const taskReflections = [...(task.reflections || [])].sort(
       (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
     );
+    const allTaskAttachments = uniqueById([
+      ...(task.allAttachments || []),
+      ...state.attachments.filter((attachment) => attachment.task_id === task.id),
+    ]);
+    const directAttachments = allTaskAttachments.filter((attachment) => !attachment.reflection_id);
+    const reflectionAttachmentIds = new Set();
+    const reflectionSections = taskReflections.map((reflection, index) => {
+      const reflectionAttachments = allTaskAttachments.filter((attachment) => attachment.reflection_id === reflection.id);
+      reflectionAttachments.forEach((attachment) => reflectionAttachmentIds.add(attachment.id));
+      return {
+        title: taskReflections.length > 1 ? `Reflexion ${index + 1}` : "Reflexion",
+        body: reflection.text,
+        emptyText: "Keine Reflexion vorhanden.",
+        attachments: reflectionAttachments,
+        meta: [
+          reflection.mood ? { label: reflection.mood } : null,
+          reflection.created_at ? { label: `Abgegeben ${formatDateTime(reflection.created_at)}` } : null,
+          reflectionAttachments.length
+            ? { label: `${reflectionAttachments.length} Anhang${reflectionAttachments.length === 1 ? "" : "e"}` }
+            : null,
+        ].filter(Boolean),
+      };
+    });
+    const fallbackAttachments = allTaskAttachments.filter(
+      (attachment) => attachment.reflection_id && !reflectionAttachmentIds.has(attachment.id),
+    );
     const personMeta =
       isCoachRole() && task.client_id
         ? { label: person, clientId: task.client_id, className: "clickable" }
@@ -2718,7 +2762,7 @@ function readerData() {
       eyebrow: "Aufgabe",
       title: task.title,
       body: task.description,
-      attachments: task.attachments || [],
+      attachments: allTaskAttachments,
       emptyText: "Keine Beschreibung",
       meta: [
         personMeta,
@@ -2726,34 +2770,36 @@ function readerData() {
         { label: `Fällig ${formatDate(task.due_date)}` },
         task.completed_at ? { label: `Erledigt ${formatDateTime(task.completed_at)}`, className: "done" } : null,
         taskReflections.length ? { label: `${taskReflections.length} Reflexion${taskReflections.length === 1 ? "" : "en"}`, className: "done" } : null,
+        allTaskAttachments.length ? { label: `${allTaskAttachments.length} Anhang${allTaskAttachments.length === 1 ? "" : "e"}` } : null,
       ].filter(Boolean),
       sections:
-        task.status === "done" || taskReflections.length
+        task.status === "done" || taskReflections.length || allTaskAttachments.length
           ? [
               {
                 title: "Aufgabe",
                 body: task.description,
                 emptyText: "Keine Beschreibung",
-                attachments: task.attachments || [],
+                attachments: directAttachments,
                 meta: [
                   { label: `Ursprünglich fällig ${formatDate(task.due_date)}` },
                   task.completed_at ? { label: `Erledigt ${formatDateTime(task.completed_at)}`, className: "done" } : null,
-                ].filter(Boolean),
-              },
-              ...taskReflections.map((reflection, index) => ({
-                title: taskReflections.length > 1 ? `Reflexion ${index + 1}` : "Reflexion",
-                body: reflection.text,
-                emptyText: "Keine Reflexion vorhanden.",
-                attachments: reflection.attachments || [],
-                meta: [
-                  reflection.mood ? { label: reflection.mood } : null,
-                  reflection.created_at ? { label: `Abgegeben ${formatDateTime(reflection.created_at)}` } : null,
-                  reflection.attachments?.length
-                    ? { label: `${reflection.attachments.length} Anhang${reflection.attachments.length === 1 ? "" : "e"}` }
+                  directAttachments.length
+                    ? { label: `${directAttachments.length} Aufgaben-Anhang${directAttachments.length === 1 ? "" : "e"}` }
                     : null,
                 ].filter(Boolean),
-              })),
+              },
+              ...reflectionSections,
+              fallbackAttachments.length
+                ? {
+                    title: "Anhänge",
+                    body: "",
+                    emptyText: "Zusätzliche Anhänge zu dieser Aufgabe.",
+                    attachments: fallbackAttachments,
+                    meta: [{ label: `${fallbackAttachments.length} Anhang${fallbackAttachments.length === 1 ? "" : "e"}` }],
+                  }
+                : null,
             ]
+              .filter(Boolean)
           : null,
     };
   }
