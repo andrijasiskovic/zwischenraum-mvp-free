@@ -44,6 +44,11 @@ const state = {
   toast: null,
   toastTimer: null,
   modalTask: null,
+  reflectionDraft: {
+    taskId: "",
+    text: "",
+    mood: "",
+  },
   taskComposerOpen: false,
   readerModal: null,
   groupEditor: null,
@@ -417,6 +422,50 @@ function clearFormSubmitError(form) {
   if (!errorEl) return;
   errorEl.textContent = "";
   errorEl.hidden = true;
+}
+
+function resetReflectionDraft(taskId = "") {
+  state.reflectionDraft = {
+    taskId,
+    text: "",
+    mood: "",
+  };
+  state.pendingReflectionFiles = [];
+}
+
+function syncReflectionDraftFromForm(form) {
+  if (!state.modalTask || form?.dataset.action !== "complete-task") return;
+  syncRichEditors(form);
+  const values = Object.fromEntries(new FormData(form));
+  state.reflectionDraft = {
+    taskId: state.modalTask.id,
+    text: richTextToHtml(values.text || state.reflectionDraft.text || ""),
+    mood: values.mood || "",
+  };
+}
+
+function setSubmitBusy(form, isBusy, label = "Wird verarbeitet...") {
+  if (!form) return;
+  form.classList.toggle("is-submitting", isBusy);
+  form.querySelectorAll("button, input, select, textarea").forEach((control) => {
+    if (control.dataset.action === "close-modal") {
+      control.disabled = isBusy;
+      return;
+    }
+    if (control.type === "button" && !control.matches("[type='submit'], .btn.primary")) return;
+    control.disabled = isBusy;
+  });
+  const submitButton = form.querySelector("[data-submit-button]");
+  if (submitButton) {
+    submitButton.innerHTML = isBusy
+      ? `<span class="spinner" aria-hidden="true"></span><span>${escapeHtml(label)}</span>`
+      : escapeHtml(submitButton.dataset.defaultLabel || "Abschließen");
+  }
+  const status = form.querySelector("[data-submit-status]");
+  if (status) {
+    status.textContent = isBusy ? label : "";
+    status.hidden = !isBusy;
+  }
 }
 
 function resetTaskComposerState() {
@@ -2749,27 +2798,27 @@ function renderReaderModal() {
 
 function renderReflectionModal() {
   const task = state.modalTask;
+  const draft = state.reflectionDraft?.taskId === task.id ? state.reflectionDraft : { text: "", mood: "" };
+  const moodOptions = ["Gut gelungen", "Teilweise gelungen", "Schwierig", "Bitte besprechen"];
   return `
     <div class="modal">
       <form class="modal-card stack" data-action="complete-task">
         <h2>${escapeHtml(task.title)}</h2>
         <p class="muted">${escapeHtml(state.preset?.reflection_prompt || "Wie ist es dir damit gegangen?")}</p>
-        ${renderRichTextField("text", "Reflexion", "", { required: true })}
+        ${renderRichTextField("text", "Reflexion", draft.text, { required: true })}
         ${renderFileField("Bilder, Videos oder Dateien zur Reflexion", { scope: "reflection" })}
         <label class="field">
           <span>Gefühl / Status</span>
           <select name="mood" required>
             <option value="">Bitte auswählen</option>
-            <option>Gut gelungen</option>
-            <option>Teilweise gelungen</option>
-            <option>Schwierig</option>
-            <option>Bitte besprechen</option>
+            ${moodOptions.map((option) => `<option ${draft.mood === option ? "selected" : ""}>${escapeHtml(option)}</option>`).join("")}
           </select>
         </label>
         <div class="modal-actions">
           <button type="button" class="btn" data-action="close-modal">Abbrechen</button>
-          <button class="btn primary">Abschließen</button>
+          <button class="btn primary" data-submit-button data-default-label="Abschließen">Abschließen</button>
         </div>
+        <p class="submit-status" data-submit-status hidden></p>
         <p class="form-submit-error" data-submit-error hidden></p>
       </form>
     </div>
@@ -3021,6 +3070,13 @@ async function handleSubmit(event) {
   if (action === "create-task" && !values.attachment_files.length && state.pendingTaskFiles.length) {
     values.attachment_files = state.pendingTaskFiles;
   }
+  if (action === "complete-task") {
+    state.reflectionDraft = {
+      taskId: state.modalTask?.id || state.reflectionDraft.taskId,
+      text: richTextToHtml(values.text || ""),
+      mood: values.mood || "",
+    };
+  }
   state.error = "";
   state.message = "";
   clearFormSubmitError(form);
@@ -3031,6 +3087,10 @@ async function handleSubmit(event) {
     );
     if (missingRichText) {
       throw new Error("Bitte alle Pflichtfelder ausfüllen.");
+    }
+    if (action === "complete-task") {
+      const uploadLabel = values.attachment_files.length ? "Video wird hochgeladen... bitte warten." : "Aufgabe wird abgeschlossen...";
+      setSubmitBusy(form, true, uploadLabel);
     }
     if (action === "auth") await submitAuth(form, event.submitter);
     if (action === "invite-signup") await submitInviteSignup(values);
@@ -3049,6 +3109,7 @@ async function handleSubmit(event) {
     if (action === "create-note") await createNote(values);
   } catch (error) {
     state.error = error.message;
+    if (action === "complete-task") setSubmitBusy(form, false);
     if (["complete-task", "create-task"].includes(action) && showFormSubmitError(form, error.message)) {
       return;
     }
@@ -3112,6 +3173,15 @@ function safeFileName(name = "datei") {
   return cleaned || "datei";
 }
 
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]);
+}
+
 async function uploadAttachments(files = [], taskId, reflectionId = null) {
   if (!files.length) return;
   const maxFileSize = 50 * 1024 * 1024;
@@ -3134,23 +3204,31 @@ async function uploadAttachments(files = [], taskId, reflectionId = null) {
       `${Date.now()}-${index}-${safeFileName(file.name)}`,
     ].join("/");
 
-    const { error: uploadError } = await state.supabase.storage.from("task-attachments").upload(path, file, {
-      cacheControl: "3600",
-      upsert: false,
-      contentType: file.type || "application/octet-stream",
-    });
+    const { error: uploadError } = await withTimeout(
+      state.supabase.storage.from("task-attachments").upload(path, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type || "application/octet-stream",
+      }),
+      120000,
+      "Der Upload dauert zu lange. Bitte prüfe die Verbindung und versuche es erneut.",
+    );
     if (uploadError) throw uploadError;
 
-    const { error: insertError } = await state.supabase.from("task_attachments").insert({
-      organization_id: state.organization.id,
-      task_id: taskId,
-      reflection_id: reflectionId,
-      uploaded_by: state.session.user.id,
-      file_name: file.name,
-      file_type: file.type || "application/octet-stream",
-      file_size: file.size,
-      storage_path: path,
-    });
+    const { error: insertError } = await withTimeout(
+      state.supabase.from("task_attachments").insert({
+        organization_id: state.organization.id,
+        task_id: taskId,
+        reflection_id: reflectionId,
+        uploaded_by: state.session.user.id,
+        file_name: file.name,
+        file_type: file.type || "application/octet-stream",
+        file_size: file.size,
+        storage_path: path,
+      }),
+      30000,
+      "Der Datei-Eintrag konnte nicht rechtzeitig gespeichert werden. Bitte erneut versuchen.",
+    );
     if (insertError) throw insertError;
   }
 }
@@ -3881,20 +3959,28 @@ async function completeTask(values) {
   const reflectionText = richTextToHtml(values.text);
 
   if (!files.length) {
-    const { error } = await state.supabase.rpc("complete_task", {
-      task_id: state.modalTask.id,
-      reflection_text: reflectionText,
-      reflection_mood: values.mood,
-    });
+    const { error } = await withTimeout(
+      state.supabase.rpc("complete_task", {
+        task_id: state.modalTask.id,
+        reflection_text: reflectionText,
+        reflection_mood: values.mood,
+      }),
+      45000,
+      "Die Aufgabe konnte nicht rechtzeitig abgeschlossen werden. Bitte erneut versuchen.",
+    );
     if (error) throw error;
   } else {
     let reflectionId = "";
     try {
-      const { data, error } = await state.supabase.rpc("create_reflection_for_task", {
-        task_id: state.modalTask.id,
-        reflection_text: reflectionText,
-        reflection_mood: values.mood,
-      });
+      const { data, error } = await withTimeout(
+        state.supabase.rpc("create_reflection_for_task", {
+          task_id: state.modalTask.id,
+          reflection_text: reflectionText,
+          reflection_mood: values.mood,
+        }),
+        45000,
+        "Die Reflexion konnte nicht rechtzeitig vorbereitet werden. Bitte erneut versuchen.",
+      );
       if (error) throw error;
       reflectionId = data;
       if (!reflectionId) {
@@ -3903,10 +3989,14 @@ async function completeTask(values) {
 
       await uploadAttachments(files, state.modalTask.id, reflectionId);
 
-      const { error: finishError } = await state.supabase.rpc("finish_task_after_reflection", {
-        task_id: state.modalTask.id,
-        reflection_id: reflectionId,
-      });
+      const { error: finishError } = await withTimeout(
+        state.supabase.rpc("finish_task_after_reflection", {
+          task_id: state.modalTask.id,
+          reflection_id: reflectionId,
+        }),
+        45000,
+        "Die Aufgabe konnte nach dem Upload nicht rechtzeitig abgeschlossen werden. Bitte erneut versuchen.",
+      );
       if (finishError) throw finishError;
     } catch (error) {
       if (reflectionId) {
@@ -3921,7 +4011,7 @@ async function completeTask(values) {
   }
 
   state.modalTask = null;
-  state.pendingReflectionFiles = [];
+  resetReflectionDraft();
   state.message = "Aufgabe abgeschlossen.";
   await loadWorkspaceData();
   renderApp();
@@ -3991,7 +4081,11 @@ app.addEventListener("focusin", (event) => {
 
 app.addEventListener("input", (event) => {
   const editor = event.target.closest("[data-rich-editor]");
-  if (editor) syncRichEditor(editor);
+  if (editor) {
+    syncRichEditor(editor);
+    const form = editor.closest("form");
+    if (form?.dataset.action === "complete-task") syncReflectionDraftFromForm(form);
+  }
 });
 
 app.addEventListener("paste", (event) => {
@@ -4000,6 +4094,8 @@ app.addEventListener("paste", (event) => {
   event.preventDefault();
   document.execCommand("insertHTML", false, normalizedPasteHtml(event));
   syncRichEditor(editor);
+  const form = editor.closest("form");
+  if (form?.dataset.action === "complete-task") syncReflectionDraftFromForm(form);
 });
 
 app.addEventListener("keydown", (event) => {
@@ -4053,6 +4149,14 @@ app.addEventListener("change", async (event) => {
   const fileInput = event.target.closest("[data-file-input]");
   if (fileInput) {
     renderSelectedFiles(fileInput);
+    const form = fileInput.closest("form");
+    if (form?.dataset.action === "complete-task") syncReflectionDraftFromForm(form);
+    return;
+  }
+
+  const reflectionMood = event.target.closest("form[data-action='complete-task'] select[name='mood']");
+  if (reflectionMood) {
+    syncReflectionDraftFromForm(reflectionMood.closest("form"));
     return;
   }
 
@@ -4200,6 +4304,8 @@ app.addEventListener("click", async (event) => {
     if (input) input.value = "";
     const container = field?.querySelector("[data-file-selection]");
     if (container) container.innerHTML = "";
+    const form = target.closest("form");
+    if (form?.dataset.action === "complete-task") syncReflectionDraftFromForm(form);
     return;
   }
 
@@ -4252,8 +4358,8 @@ app.addEventListener("click", async (event) => {
   }
 
   if (target.dataset.complete) {
-    state.pendingReflectionFiles = [];
     state.modalTask = state.tasks.find((task) => task.id === target.dataset.complete);
+    resetReflectionDraft(state.modalTask?.id || "");
     renderApp();
   }
 
@@ -4421,7 +4527,7 @@ app.addEventListener("click", async (event) => {
 
   if (target.dataset.action === "close-modal") {
     state.modalTask = null;
-    state.pendingReflectionFiles = [];
+    resetReflectionDraft();
     renderApp();
   }
 

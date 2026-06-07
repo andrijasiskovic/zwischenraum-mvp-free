@@ -1672,6 +1672,35 @@ button.chip.clickable:hover {
   display: none;
 }
 
+.submit-status {
+  margin: 0;
+  border-radius: 12px;
+  padding: 9px 11px;
+  color: color-mix(in srgb, var(--primary), black 30%);
+  background: color-mix(in srgb, var(--primary), white 91%);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.submit-status[hidden] {
+  display: none;
+}
+
+.spinner {
+  width: 1em;
+  height: 1em;
+  border: 2px solid rgba(255, 255, 255, 0.44);
+  border-top-color: white;
+  border-radius: 999px;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .success {
   color: var(--good);
 }
