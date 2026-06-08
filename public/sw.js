@@ -1,4 +1,4 @@
-const CACHE_NAME = "momentum-pwa-v43";
+const CACHE_NAME = "momentum-pwa-v44";
 const APP_SHELL = [
   "./",
   "./index.html",

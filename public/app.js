@@ -2278,13 +2278,16 @@ function renderGroupModalCard() {
       <div class="reader-head">
         <div>
           <span class="reader-eyebrow">${editor.groupId ? "Gruppe bearbeiten" : "Neue Gruppe"}</span>
-          <h2>${escapeHtml(editor.name)}</h2>
+          <h2 data-group-modal-title>${escapeHtml(editor.name || "Neue Gruppe")}</h2>
         </div>
         <button class="btn small" type="button" data-action="close-group-modal">Schließen</button>
       </div>
       <input type="hidden" name="group_id" value="${escapeHtml(editor.groupId)}" />
-      <input type="hidden" name="name" value="${escapeHtml(editor.name)}" />
       <div class="group-modal-body">
+        <label class="field">
+          <span>Gruppenname</span>
+          <input name="name" data-group-name-input required value="${escapeHtml(editor.name)}" placeholder="z. B. U12 Technikgruppe" />
+        </label>
         <label class="client-directory-search group-member-search">
           <span>Suchen</span>
           <input data-group-member-search value="${escapeHtml(editor.search)}" placeholder="Name oder E-Mail" autocomplete="off" />
@@ -4496,6 +4499,14 @@ app.addEventListener("input", (event) => {
   if (groupSearch && state.groupEditor) {
     state.groupEditor.search = groupSearch.value;
     refreshGroupModal();
+    return;
+  }
+
+  const groupNameInput = event.target.closest("[data-group-name-input]");
+  if (groupNameInput && state.groupEditor) {
+    state.groupEditor.name = groupNameInput.value;
+    const title = document.querySelector("[data-group-modal-title]");
+    if (title) title.textContent = groupNameInput.value.trim() || "Neue Gruppe";
     return;
   }
 
