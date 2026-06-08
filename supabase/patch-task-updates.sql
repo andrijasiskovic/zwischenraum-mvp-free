@@ -8,8 +8,16 @@ create table if not exists public.task_updates (
   organization_id uuid not null references public.organizations(id) on delete cascade,
   client_id uuid not null references public.profiles(id),
   message text not null default '',
+  response text,
+  responded_by uuid references public.profiles(id),
+  responded_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+alter table public.task_updates
+  add column if not exists response text,
+  add column if not exists responded_by uuid references public.profiles(id),
+  add column if not exists responded_at timestamptz;
 
 alter table public.task_attachments
   add column if not exists task_update_id uuid references public.task_updates(id) on delete cascade;
@@ -159,6 +167,53 @@ begin
 end;
 $$;
 
+create or replace function public.answer_task_update(task_update_id uuid, response_text text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  update_row public.task_updates;
+  task_row public.tasks;
+begin
+  select * into update_row
+  from public.task_updates as task_updates
+  where task_updates.id = answer_task_update.task_update_id;
+
+  if update_row.id is null then
+    raise exception 'Rueckfrage nicht gefunden';
+  end if;
+
+  select * into task_row
+  from public.tasks as tasks
+  where tasks.id = update_row.task_id;
+
+  if task_row.id is null then
+    raise exception 'Aufgabe nicht gefunden';
+  end if;
+
+  if not (
+    task_row.coach_id = auth.uid()
+    or public.has_org_role(task_row.organization_id, array['owner']::public.member_role[])
+    or public.is_assigned_coach(task_row.organization_id, task_row.client_id)
+  ) then
+    raise exception 'Not allowed';
+  end if;
+
+  if coalesce(trim(response_text), '') = '' then
+    raise exception 'Bitte Antwort eingeben';
+  end if;
+
+  update public.task_updates
+  set response = response_text,
+      responded_by = auth.uid(),
+      responded_at = now()
+  where id = update_row.id;
+end;
+$$;
+
 grant select, insert on public.task_updates to authenticated;
 grant execute on function public.create_task_update(uuid, text) to authenticated;
 grant execute on function public.delete_task_update_draft(uuid) to authenticated;
+grant execute on function public.answer_task_update(uuid, text) to authenticated;

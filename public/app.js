@@ -1500,9 +1500,68 @@ function renderDashboard() {
       ${metricCard("Erledigt", data.done)}
       ${metricCard("Umsetzung", `${data.rate}%`)}
     </section>
+    ${renderOpenQuestionPanel()}
     <section class="dashboard-task-grid">
       ${renderTasksPanel(false)}
     </section>
+  `;
+}
+
+function tasksWithOpenQuestions() {
+  return state.tasks
+    .filter((task) => task.status === "open" && task.updates?.some((update) => !update.responded_at))
+    .map((task) => {
+      const sortedUpdates = [...(task.updates || [])]
+        .filter((update) => !update.responded_at)
+        .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      return {
+        ...task,
+        latestUpdate: sortedUpdates[0],
+        updateCount: sortedUpdates.length,
+      };
+    })
+    .sort((a, b) => new Date(b.latestUpdate?.created_at || 0) - new Date(a.latestUpdate?.created_at || 0));
+}
+
+function renderOpenQuestionPanel() {
+  const rows = tasksWithOpenQuestions();
+  return `
+    <section class="panel open-questions-panel">
+      <div class="toolbar compact-toolbar">
+        <div>
+          <h2>Offene Rückfragen</h2>
+          <p class="muted">${rows.length ? `${rows.length} Aufgabe${rows.length === 1 ? "" : "n"} mit Rückfrage` : "Keine offenen Rückfragen"}</p>
+        </div>
+      </div>
+      <div class="open-question-list">
+        ${
+          rows.length
+            ? rows.map(renderOpenQuestionRow).join("")
+            : `<p class="muted">${isCoachRole() ? "Sobald Clients Rückfragen senden, erscheinen sie hier." : "Sobald du Rückfragen zu offenen Aufgaben gesendet hast, erscheinen sie hier."}</p>`
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderOpenQuestionRow(task) {
+  const person = isCoachRole() ? personName(task.client, "Client") : personName(task.coach, "Coach");
+  const latestUpdate = task.latestUpdate || {};
+  const attachmentCount = latestUpdate.attachments?.length || 0;
+  return `
+    <article class="open-question-row readable-row" data-open-reader="task:${task.id}" role="button" tabindex="0">
+      <div>
+        <strong>${escapeHtml(task.title)}</strong>
+        <small class="muted">${escapeHtml(person)} · ${latestUpdate.created_at ? formatDateTime(latestUpdate.created_at) : "gerade erhalten"}</small>
+      </div>
+      <div class="open-question-preview">
+        ${renderRichPreview(latestUpdate.message, "Nur Anhänge ohne Text.", "question-preview")}
+        <div class="chips">
+          <span class="chip">${task.updateCount} Rückfrage${task.updateCount === 1 ? "" : "n"}</span>
+          ${attachmentCount ? `<span class="chip">${attachmentCount} Anhang${attachmentCount === 1 ? "" : "e"}</span>` : ""}
+        </div>
+      </div>
+    </article>
   `;
 }
 
@@ -2837,8 +2896,15 @@ function readerData() {
         body: update.message,
         emptyText: "Nur Anhänge ohne Text.",
         attachments: updateAttachments,
+        response: update.response,
+        responseMeta: update.responded_at ? `Beantwortet ${formatDateTime(update.responded_at)}` : "",
+        answerForm:
+          isCoachRole() && task.status === "open" && !update.responded_at
+            ? { updateId: update.id }
+            : null,
         meta: [
           update.created_at ? { label: `Gesendet ${formatDateTime(update.created_at)}` } : null,
+          update.responded_at ? { label: "Beantwortet", className: "done" } : null,
           updateAttachments.length
             ? { label: `${updateAttachments.length} Anhang${updateAttachments.length === 1 ? "" : "e"}` }
             : null,
@@ -2960,6 +3026,31 @@ function renderReaderSection(section) {
         ${richTextToHtml(section.body) || `<p>${escapeHtml(section.emptyText || "Keine Inhalte vorhanden.")}</p>`}
       </div>
       ${renderAttachmentList(section.attachments || [])}
+      ${
+        section.response
+          ? `<div class="reader-response">
+              <strong>Antwort</strong>
+              ${section.responseMeta ? `<small class="muted">${escapeHtml(section.responseMeta)}</small>` : ""}
+              <div>${richTextToHtml(section.response)}</div>
+            </div>`
+          : ""
+      }
+      ${
+        section.answerForm
+          ? `<form class="reader-answer-form" data-action="answer-task-update">
+              <input type="hidden" name="task_update_id" value="${escapeHtml(section.answerForm.updateId)}" />
+              ${renderRichTextField("response", "Antwort", "", {
+                required: true,
+                placeholder: "Antwort an den Client schreiben...",
+              })}
+              <div class="modal-actions">
+                <button class="btn primary" data-submit-button data-default-label="Antwort senden">Antwort senden</button>
+              </div>
+              <p class="submit-status" data-submit-status hidden></p>
+              <p class="form-submit-error" data-submit-error hidden></p>
+            </form>`
+          : ""
+      }
     </article>
   `;
 }
@@ -3335,6 +3426,9 @@ async function handleSubmit(event) {
       const uploadLabel = values.attachment_files.length ? "Datei wird hochgeladen... bitte warten." : "Rückfrage wird gesendet...";
       setSubmitBusy(form, true, uploadLabel);
     }
+    if (action === "answer-task-update") {
+      setSubmitBusy(form, true, "Antwort wird gesendet...");
+    }
     if (action === "auth") await submitAuth(form, event.submitter);
     if (action === "invite-signup") await submitInviteSignup(values);
     if (action === "update-profile-name") await updateProfileName(values);
@@ -3350,12 +3444,14 @@ async function handleSubmit(event) {
     if (action === "update-template") await updateTemplate(values);
     if (action === "complete-task") await completeTask(values);
     if (action === "send-task-update") await sendTaskUpdate(values);
+    if (action === "answer-task-update") await answerTaskUpdate(values);
     if (action === "create-note") await createNote(values);
   } catch (error) {
     state.error = error.message;
     if (action === "complete-task") setSubmitBusy(form, false);
     if (action === "send-task-update") setSubmitBusy(form, false);
-    if (["complete-task", "create-task", "send-task-update"].includes(action) && showFormSubmitError(form, error.message)) {
+    if (action === "answer-task-update") setSubmitBusy(form, false);
+    if (["complete-task", "create-task", "send-task-update", "answer-task-update"].includes(action) && showFormSubmitError(form, error.message)) {
       return;
     }
     if (inviteParams().hasInviteLink) {
@@ -4311,6 +4407,27 @@ async function sendTaskUpdate(values) {
   state.updateTask = null;
   resetTaskUpdateDraft();
   showToast("Rückfrage gesendet");
+  await loadWorkspaceData();
+  renderApp();
+}
+
+async function answerTaskUpdate(values) {
+  const response = richTextToHtml(values.response || "");
+  if (!values.task_update_id || !richTextPlain(response)) {
+    throw new Error("Bitte Antwort eingeben.");
+  }
+
+  const { error } = await withTimeout(
+    state.supabase.rpc("answer_task_update", {
+      task_update_id: values.task_update_id,
+      response_text: response,
+    }),
+    45000,
+    "Die Antwort konnte nicht rechtzeitig gesendet werden. Bitte erneut versuchen.",
+  );
+  if (error) throw error;
+
+  showToast("Antwort gesendet");
   await loadWorkspaceData();
   renderApp();
 }
