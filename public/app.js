@@ -1508,19 +1508,34 @@ function renderDashboard() {
 }
 
 function tasksWithOpenQuestions() {
+  const coachView = isCoachRole();
   return state.tasks
-    .filter((task) => task.status === "open" && task.updates?.some((update) => !update.responded_at))
+    .filter((task) => {
+      if (task.status !== "open" || !task.updates?.length) return false;
+      if (coachView) return task.updates.some((update) => !update.responded_at);
+      return true;
+    })
     .map((task) => {
       const sortedUpdates = [...(task.updates || [])]
-        .filter((update) => !update.responded_at)
-        .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+        .filter((update) => (coachView ? !update.responded_at : true))
+        .sort((a, b) => {
+          const bDate = new Date((coachView ? b.created_at : b.responded_at || b.created_at) || 0);
+          const aDate = new Date((coachView ? a.created_at : a.responded_at || a.created_at) || 0);
+          return bDate - aDate;
+        });
       return {
         ...task,
         latestUpdate: sortedUpdates[0],
         updateCount: sortedUpdates.length,
+        answeredCount: (task.updates || []).filter((update) => update.responded_at).length,
+        unansweredCount: (task.updates || []).filter((update) => !update.responded_at).length,
       };
     })
-    .sort((a, b) => new Date(b.latestUpdate?.created_at || 0) - new Date(a.latestUpdate?.created_at || 0));
+    .sort((a, b) => {
+      const bDate = new Date((isCoachRole() ? b.latestUpdate?.created_at : b.latestUpdate?.responded_at || b.latestUpdate?.created_at) || 0);
+      const aDate = new Date((isCoachRole() ? a.latestUpdate?.created_at : a.latestUpdate?.responded_at || a.latestUpdate?.created_at) || 0);
+      return bDate - aDate;
+    });
 }
 
 function renderOpenQuestionPanel() {
@@ -1548,16 +1563,20 @@ function renderOpenQuestionRow(task) {
   const person = isCoachRole() ? personName(task.client, "Client") : personName(task.coach, "Coach");
   const latestUpdate = task.latestUpdate || {};
   const attachmentCount = latestUpdate.attachments?.length || 0;
+  const latestDate = latestUpdate.responded_at || latestUpdate.created_at;
+  const clientStatus = latestUpdate.responded_at ? "Antwort da" : "Wartet auf Antwort";
   return `
     <article class="open-question-row readable-row" data-open-reader="task:${task.id}" role="button" tabindex="0">
       <div>
         <strong>${escapeHtml(task.title)}</strong>
-        <small class="muted">${escapeHtml(person)} · ${latestUpdate.created_at ? formatDateTime(latestUpdate.created_at) : "gerade erhalten"}</small>
+        <small class="muted">${escapeHtml(person)} · ${latestDate ? formatDateTime(latestDate) : "gerade erhalten"}</small>
       </div>
       <div class="open-question-preview">
         ${renderRichPreview(latestUpdate.message, "Nur Anhänge ohne Text.", "question-preview")}
         <div class="chips">
-          <span class="chip">${task.updateCount} Rückfrage${task.updateCount === 1 ? "" : "n"}</span>
+          ${isCoachRole() ? `<span class="chip">${task.updateCount} offen</span>` : `<span class="chip ${latestUpdate.responded_at ? "done" : ""}">${clientStatus}</span>`}
+          ${!isCoachRole() && task.unansweredCount ? `<span class="chip">${task.unansweredCount} unbeantwortet</span>` : ""}
+          ${!isCoachRole() && task.answeredCount ? `<span class="chip done">${task.answeredCount} beantwortet</span>` : ""}
           ${attachmentCount ? `<span class="chip">${attachmentCount} Anhang${attachmentCount === 1 ? "" : "e"}</span>` : ""}
         </div>
       </div>
