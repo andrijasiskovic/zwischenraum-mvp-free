@@ -24,9 +24,11 @@ const state = {
   batchRecipients: [],
   groupSchemaMissing: false,
   batchSchemaMissing: false,
+  taskUpdateSchemaMissing: false,
   organizationMembers: [],
   tasks: [],
   reflections: [],
+  taskUpdates: [],
   attachments: [],
   notes: [],
   templates: [],
@@ -44,10 +46,15 @@ const state = {
   toast: null,
   toastTimer: null,
   modalTask: null,
+  updateTask: null,
   reflectionDraft: {
     taskId: "",
     text: "",
     mood: "",
+  },
+  taskUpdateDraft: {
+    taskId: "",
+    message: "",
   },
   taskComposerOpen: false,
   readerModal: null,
@@ -61,6 +68,7 @@ const state = {
   selectedTaskGroupIds: [],
   pendingTaskFiles: [],
   pendingReflectionFiles: [],
+  pendingUpdateFiles: [],
   clientSearch: "",
   clientPickerOpen: false,
   mobileMenuOpen: false,
@@ -345,12 +353,14 @@ function normalizedPasteHtml(event) {
 function selectedFilesForScope(scope = "") {
   if (scope === "task") return state.pendingTaskFiles;
   if (scope === "reflection") return state.pendingReflectionFiles;
+  if (scope === "update") return state.pendingUpdateFiles;
   return [];
 }
 
 function setSelectedFilesForScope(scope = "", files = []) {
   if (scope === "task") state.pendingTaskFiles = files;
   if (scope === "reflection") state.pendingReflectionFiles = files;
+  if (scope === "update") state.pendingUpdateFiles = files;
 }
 
 function renderFileSelection(files = [], scope = "") {
@@ -433,6 +443,14 @@ function resetReflectionDraft(taskId = "") {
   state.pendingReflectionFiles = [];
 }
 
+function resetTaskUpdateDraft(taskId = "") {
+  state.taskUpdateDraft = {
+    taskId,
+    message: "",
+  };
+  state.pendingUpdateFiles = [];
+}
+
 function syncReflectionDraftFromForm(form) {
   if (!state.modalTask || form?.dataset.action !== "complete-task") return;
   syncRichEditors(form);
@@ -444,11 +462,21 @@ function syncReflectionDraftFromForm(form) {
   };
 }
 
+function syncTaskUpdateDraftFromForm(form) {
+  if (!state.updateTask || form?.dataset.action !== "send-task-update") return;
+  syncRichEditors(form);
+  const values = Object.fromEntries(new FormData(form));
+  state.taskUpdateDraft = {
+    taskId: state.updateTask.id,
+    message: richTextToHtml(values.message || state.taskUpdateDraft.message || ""),
+  };
+}
+
 function setSubmitBusy(form, isBusy, label = "Wird verarbeitet...") {
   if (!form) return;
   form.classList.toggle("is-submitting", isBusy);
   form.querySelectorAll("button, input, select, textarea").forEach((control) => {
-    if (control.dataset.action === "close-modal") {
+    if (control.dataset.action?.startsWith("close")) {
       control.disabled = isBusy;
       return;
     }
@@ -536,6 +564,17 @@ function missingBatchSchema(error) {
   );
 }
 
+function missingTaskUpdateSchema(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("task_updates") ||
+    message.includes("task_update_id") ||
+    message.includes("create_task_update") ||
+    error?.code === "42P01" ||
+    error?.code === "42703"
+  );
+}
+
 function personName(person, fallback = "Unbekannt") {
   const fullName = String(person?.full_name || "").trim();
   if (fullName) return fullName;
@@ -594,6 +633,7 @@ function resetNavigationState() {
   state.filter = "open";
   state.selectedClientId = "";
   state.modalTask = null;
+  state.updateTask = null;
   state.readerModal = null;
   state.groupEditor = null;
   state.batchModalId = "";
@@ -603,6 +643,7 @@ function resetNavigationState() {
   state.reminderModalClientId = "";
   state.selectedTaskClientIds = [];
   state.selectedTaskGroupIds = [];
+  state.pendingUpdateFiles = [];
   state.clientSearch = "";
   state.clientPickerOpen = false;
   state.mobileMenuOpen = false;
@@ -853,6 +894,7 @@ async function loadWorkspaceData() {
     batchRecipients,
     orgMembers,
     reflections,
+    taskUpdates,
     invitations,
     notes,
     templates,
@@ -899,6 +941,11 @@ async function loadWorkspaceData() {
       .eq("organization_id", orgId)
       .order("created_at", { ascending: false }),
     state.supabase
+      .from("task_updates")
+      .select("*, tasks(title), client:profiles!task_updates_client_id_fkey(full_name, email, contact_email, phone)")
+      .eq("organization_id", orgId)
+      .order("created_at", { ascending: false }),
+    state.supabase
       .from("invitations")
       .select("*")
       .eq("organization_id", orgId)
@@ -933,6 +980,10 @@ async function loadWorkspaceData() {
       (batchRecipients.error && missingBatchSchema(batchRecipients.error)) ||
       (tasks.error && missingBatchSchema(tasks.error)),
   );
+  state.taskUpdateSchemaMissing = Boolean(
+    (taskUpdates.error && missingTaskUpdateSchema(taskUpdates.error)) ||
+      (attachments.error && missingTaskUpdateSchema(attachments.error)),
+  );
   if (tasks.error && !missingBatchSchema(tasks.error)) {
     throw tasks.error;
   }
@@ -945,8 +996,11 @@ async function loadWorkspaceData() {
   ) {
     throw taskBatches.error || batchRecipients.error;
   }
-  if (attachments.error && !missingAttachmentSchema(attachments.error)) {
+  if (attachments.error && !missingAttachmentSchema(attachments.error) && !missingTaskUpdateSchema(attachments.error)) {
     throw attachments.error;
+  }
+  if (taskUpdates.error && !missingTaskUpdateSchema(taskUpdates.error)) {
+    throw taskUpdates.error;
   }
 
   const attachmentRows = attachments.error ? [] : attachments.data || [];
@@ -954,6 +1008,12 @@ async function loadWorkspaceData() {
     ...reflection,
     attachments: attachmentRows.filter((attachment) => attachment.reflection_id === reflection.id),
   }));
+  const taskUpdateRows = state.taskUpdateSchemaMissing
+    ? []
+    : (taskUpdates.data || []).map((update) => ({
+        ...update,
+        attachments: attachmentRows.filter((attachment) => attachment.task_update_id === update.id),
+      }));
   const taskRows = tasks.error ? [] : tasks.data || [];
   state.tasks = taskRows.map((task) => {
     const allTaskAttachments = attachmentRows.filter((attachment) => attachment.task_id === task.id);
@@ -965,11 +1025,17 @@ async function loadWorkspaceData() {
     return {
       ...task,
       allAttachments: allTaskAttachments,
-      attachments: allTaskAttachments.filter((attachment) => !attachment.reflection_id),
+      attachments: allTaskAttachments.filter((attachment) => !attachment.reflection_id && !attachment.task_update_id),
       reflections: taskReflectionRows.map((reflection) => ({
         ...reflection,
         attachments: allTaskAttachments.filter((attachment) => attachment.reflection_id === reflection.id),
       })),
+      updates: taskUpdateRows
+        .filter((update) => update.task_id === task.id)
+        .map((update) => ({
+          ...update,
+          attachments: allTaskAttachments.filter((attachment) => attachment.task_update_id === update.id),
+        })),
     };
   });
   state.organizationMembers = orgMembers.data || [];
@@ -993,6 +1059,7 @@ async function loadWorkspaceData() {
           activeWorkspaceClientIds.has(recipient.client_id),
       );
   state.reflections = reflectionRows;
+  state.taskUpdates = taskUpdateRows;
   state.attachments = attachmentRows;
   state.invitations = invitations.data || [];
   state.notes = notes.data || [];
@@ -1277,6 +1344,7 @@ function renderApp() {
       ${renderView()}
       </main>
       ${state.modalTask ? renderReflectionModal() : ""}
+      ${state.updateTask ? renderTaskUpdateModal() : ""}
       ${state.readerModal ? renderReaderModal() : ""}
       ${state.taskComposerOpen ? renderTaskComposerModal() : ""}
       ${state.groupEditor ? renderGroupModal() : ""}
@@ -1514,6 +1582,7 @@ function renderTask(task) {
     : personName(task.coach, "Coach");
   const status = task.status === "done" ? "Erledigt" : isOverdue(task) ? "Überfällig" : "Offen";
   const statusClass = task.status === "done" ? "done" : isOverdue(task) ? "overdue" : "";
+  const updateCount = task.updates?.length || 0;
   return `
     <article class="task-row readable-row" data-open-reader="task:${task.id}" role="button" tabindex="0">
       <header>
@@ -1528,10 +1597,14 @@ function renderTask(task) {
       <div class="task-meta chips">
         <span class="chip">Fällig ${formatDate(task.due_date)}</span>
         ${task.reflections?.length ? `<span class="chip done">Reflexion vorhanden</span>` : ""}
+        ${updateCount ? `<span class="chip">${updateCount} Rückfrage${updateCount === 1 ? "" : "n"}</span>` : ""}
       </div>
       ${
         !isCoachRole() && task.status === "open"
-          ? `<button class="btn primary" data-complete="${task.id}">Abschließen & reflektieren</button>`
+          ? `<div class="task-row-actions">
+              <button class="btn subtle" data-update-task="${task.id}">Rückfrage senden</button>
+              <button class="btn primary" data-complete="${task.id}">Abschließen & reflektieren</button>
+            </div>`
           : ""
       }
     </article>
@@ -2729,12 +2802,16 @@ function readerData() {
     const taskReflections = [...(task.reflections || [])].sort(
       (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
     );
+    const taskUpdates = [...(task.updates || [])].sort(
+      (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
+    );
     const allTaskAttachments = uniqueById([
       ...(task.allAttachments || []),
       ...state.attachments.filter((attachment) => attachment.task_id === task.id),
     ]);
-    const directAttachments = allTaskAttachments.filter((attachment) => !attachment.reflection_id);
+    const directAttachments = allTaskAttachments.filter((attachment) => !attachment.reflection_id && !attachment.task_update_id);
     const reflectionAttachmentIds = new Set();
+    const updateAttachmentIds = new Set();
     const reflectionSections = taskReflections.map((reflection, index) => {
       const reflectionAttachments = allTaskAttachments.filter((attachment) => attachment.reflection_id === reflection.id);
       reflectionAttachments.forEach((attachment) => reflectionAttachmentIds.add(attachment.id));
@@ -2752,8 +2829,26 @@ function readerData() {
         ].filter(Boolean),
       };
     });
+    const updateSections = taskUpdates.map((update, index) => {
+      const updateAttachments = allTaskAttachments.filter((attachment) => attachment.task_update_id === update.id);
+      updateAttachments.forEach((attachment) => updateAttachmentIds.add(attachment.id));
+      return {
+        title: taskUpdates.length > 1 ? `Rückfrage ${index + 1}` : "Rückfrage",
+        body: update.message,
+        emptyText: "Nur Anhänge ohne Text.",
+        attachments: updateAttachments,
+        meta: [
+          update.created_at ? { label: `Gesendet ${formatDateTime(update.created_at)}` } : null,
+          updateAttachments.length
+            ? { label: `${updateAttachments.length} Anhang${updateAttachments.length === 1 ? "" : "e"}` }
+            : null,
+        ].filter(Boolean),
+      };
+    });
     const fallbackAttachments = allTaskAttachments.filter(
-      (attachment) => attachment.reflection_id && !reflectionAttachmentIds.has(attachment.id),
+      (attachment) =>
+        (attachment.reflection_id && !reflectionAttachmentIds.has(attachment.id)) ||
+        (attachment.task_update_id && !updateAttachmentIds.has(attachment.id)),
     );
     const personMeta =
       isCoachRole() && task.client_id
@@ -2765,16 +2860,21 @@ function readerData() {
       body: task.description,
       attachments: allTaskAttachments,
       emptyText: "Keine Beschreibung",
+      action:
+        !isCoachRole() && task.status === "open"
+          ? { label: "Rückfrage senden", taskId: task.id }
+          : null,
       meta: [
         personMeta,
         { label: status, className: statusClass },
         { label: `Fällig ${formatDate(task.due_date)}` },
         task.completed_at ? { label: `Erledigt ${formatDateTime(task.completed_at)}`, className: "done" } : null,
         taskReflections.length ? { label: `${taskReflections.length} Reflexion${taskReflections.length === 1 ? "" : "en"}`, className: "done" } : null,
+        taskUpdates.length ? { label: `${taskUpdates.length} Rückfrage${taskUpdates.length === 1 ? "" : "n"}` } : null,
         allTaskAttachments.length ? { label: `${allTaskAttachments.length} Anhang${allTaskAttachments.length === 1 ? "" : "e"}` } : null,
       ].filter(Boolean),
       sections:
-        task.status === "done" || taskReflections.length || allTaskAttachments.length
+        task.status === "done" || taskReflections.length || taskUpdates.length || allTaskAttachments.length
           ? [
               {
                 title: "Aufgabe",
@@ -2789,6 +2889,7 @@ function readerData() {
                     : null,
                 ].filter(Boolean),
               },
+              ...updateSections,
               ...reflectionSections,
               fallbackAttachments.length
                 ? {
@@ -2887,6 +2988,13 @@ function renderReaderModal() {
               : `${richTextToHtml(data.body) || `<p>${escapeHtml(data.emptyText)}</p>`}${renderAttachmentList(data.attachments)}`
           }
         </div>
+        ${
+          data.action
+            ? `<div class="modal-actions reader-actions">
+                <button class="btn subtle" data-update-task="${escapeHtml(data.action.taskId)}">${escapeHtml(data.action.label)}</button>
+              </div>`
+            : ""
+        }
       </section>
     </div>
   `;
@@ -2913,6 +3021,32 @@ function renderReflectionModal() {
         <div class="modal-actions">
           <button type="button" class="btn" data-action="close-modal">Abbrechen</button>
           <button class="btn primary" data-submit-button data-default-label="Abschließen">Abschließen</button>
+        </div>
+        <p class="submit-status" data-submit-status hidden></p>
+        <p class="form-submit-error" data-submit-error hidden></p>
+      </form>
+    </div>
+  `;
+}
+
+function renderTaskUpdateModal() {
+  const task = state.updateTask;
+  const draft = state.taskUpdateDraft?.taskId === task.id ? state.taskUpdateDraft : { message: "" };
+  return `
+    <div class="modal">
+      <form class="modal-card stack task-update-modal" data-action="send-task-update">
+        <div>
+          <span class="section-kicker">Rückfrage</span>
+          <h2>${escapeHtml(task.title)}</h2>
+          <p class="muted">Sende deinem Coach eine kurze Rückfrage oder einen Zwischenstand. Die Aufgabe bleibt offen.</p>
+        </div>
+        ${renderRichTextField("message", "Nachricht", draft.message, {
+          placeholder: "Was möchtest du mitteilen?",
+        })}
+        ${renderFileField("Dateien zur Rückfrage", { scope: "update" })}
+        <div class="modal-actions">
+          <button type="button" class="btn" data-action="close-update-modal">Abbrechen</button>
+          <button class="btn primary" data-submit-button data-default-label="Rückfrage senden">Rückfrage senden</button>
         </div>
         <p class="submit-status" data-submit-status hidden></p>
         <p class="form-submit-error" data-submit-error hidden></p>
@@ -3166,11 +3300,20 @@ async function handleSubmit(event) {
   if (action === "create-task" && !values.attachment_files.length && state.pendingTaskFiles.length) {
     values.attachment_files = state.pendingTaskFiles;
   }
+  if (action === "send-task-update" && !values.attachment_files.length && state.pendingUpdateFiles.length) {
+    values.attachment_files = state.pendingUpdateFiles;
+  }
   if (action === "complete-task") {
     state.reflectionDraft = {
       taskId: state.modalTask?.id || state.reflectionDraft.taskId,
       text: richTextToHtml(values.text || ""),
       mood: values.mood || "",
+    };
+  }
+  if (action === "send-task-update") {
+    state.taskUpdateDraft = {
+      taskId: state.updateTask?.id || state.taskUpdateDraft.taskId,
+      message: richTextToHtml(values.message || ""),
     };
   }
   state.error = "";
@@ -3188,6 +3331,10 @@ async function handleSubmit(event) {
       const uploadLabel = values.attachment_files.length ? "Video wird hochgeladen... bitte warten." : "Aufgabe wird abgeschlossen...";
       setSubmitBusy(form, true, uploadLabel);
     }
+    if (action === "send-task-update") {
+      const uploadLabel = values.attachment_files.length ? "Datei wird hochgeladen... bitte warten." : "Rückfrage wird gesendet...";
+      setSubmitBusy(form, true, uploadLabel);
+    }
     if (action === "auth") await submitAuth(form, event.submitter);
     if (action === "invite-signup") await submitInviteSignup(values);
     if (action === "update-profile-name") await updateProfileName(values);
@@ -3202,11 +3349,13 @@ async function handleSubmit(event) {
     if (action === "create-template") await createTemplate(values);
     if (action === "update-template") await updateTemplate(values);
     if (action === "complete-task") await completeTask(values);
+    if (action === "send-task-update") await sendTaskUpdate(values);
     if (action === "create-note") await createNote(values);
   } catch (error) {
     state.error = error.message;
     if (action === "complete-task") setSubmitBusy(form, false);
-    if (["complete-task", "create-task"].includes(action) && showFormSubmitError(form, error.message)) {
+    if (action === "send-task-update") setSubmitBusy(form, false);
+    if (["complete-task", "create-task", "send-task-update"].includes(action) && showFormSubmitError(form, error.message)) {
       return;
     }
     if (inviteParams().hasInviteLink) {
@@ -3278,7 +3427,7 @@ function withTimeout(promise, ms, message) {
   ]);
 }
 
-async function uploadAttachments(files = [], taskId, reflectionId = null) {
+async function uploadAttachments(files = [], taskId, reflectionId = null, taskUpdateId = null) {
   if (!files.length) return;
   const maxFileSize = 50 * 1024 * 1024;
 
@@ -3296,7 +3445,7 @@ async function uploadAttachments(files = [], taskId, reflectionId = null) {
     const path = [
       state.organization.id,
       taskId,
-      reflectionId || "task",
+      reflectionId || (taskUpdateId ? `update-${taskUpdateId}` : "task"),
       `${Date.now()}-${index}-${safeFileName(file.name)}`,
     ].join("/");
 
@@ -3316,6 +3465,7 @@ async function uploadAttachments(files = [], taskId, reflectionId = null) {
         organization_id: state.organization.id,
         task_id: taskId,
         reflection_id: reflectionId,
+        task_update_id: taskUpdateId,
         uploaded_by: state.session.user.id,
         file_name: file.name,
         file_type: file.type || "application/octet-stream",
@@ -3335,8 +3485,10 @@ function readableUploadError(error) {
 
   if (
     missingAttachmentSchema(error) ||
+    missingTaskUpdateSchema(error) ||
     message.includes("create_reflection_for_task") ||
     message.includes("finish_task_after_reflection") ||
+    message.includes("create_task_update") ||
     (message.includes("function") && message.includes("does not exist"))
   ) {
     return "Dateiupload ist vorbereitet, aber das neue Supabase-SQL muss noch ausgeführt werden. Bitte zuerst supabase/schema.sql im SQL Editor ausführen.";
@@ -4114,6 +4266,55 @@ async function completeTask(values) {
   renderApp();
 }
 
+async function sendTaskUpdate(values) {
+  const files = values.attachment_files || [];
+  const message = richTextToHtml(values.message || "");
+  if (!state.updateTask?.id) {
+    throw new Error("Bitte öffne die Aufgabe erneut und sende die Rückfrage noch einmal.");
+  }
+  if (!richTextPlain(message) && !files.length) {
+    throw new Error("Bitte schreibe eine kurze Rückfrage oder wähle eine Datei aus.");
+  }
+
+  if (files.length) {
+    await ensureAttachmentSupport();
+  }
+
+  let updateId = "";
+  try {
+    const { data, error } = await withTimeout(
+      state.supabase.rpc("create_task_update", {
+        task_id: state.updateTask.id,
+        update_message: message,
+      }),
+      45000,
+      "Die Rückfrage konnte nicht rechtzeitig vorbereitet werden. Bitte erneut versuchen.",
+    );
+    if (error) throw error;
+    if (!data) {
+      throw new Error("Die Rückfrage konnte nicht vorbereitet werden. Bitte Supabase-SQL aktualisieren.");
+    }
+    updateId = data;
+
+    await uploadAttachments(files, state.updateTask.id, null, updateId);
+  } catch (error) {
+    if (updateId) {
+      try {
+        await state.supabase.rpc("delete_task_update_draft", { task_update_id: updateId });
+      } catch {
+        // Keep the original upload error visible to the client.
+      }
+    }
+    throw new Error(readableUploadError(error));
+  }
+
+  state.updateTask = null;
+  resetTaskUpdateDraft();
+  showToast("Rückfrage gesendet");
+  await loadWorkspaceData();
+  renderApp();
+}
+
 async function logout() {
   await state.supabase.auth.signOut();
   resetNavigationState();
@@ -4182,6 +4383,7 @@ app.addEventListener("input", (event) => {
     syncRichEditor(editor);
     const form = editor.closest("form");
     if (form?.dataset.action === "complete-task") syncReflectionDraftFromForm(form);
+    if (form?.dataset.action === "send-task-update") syncTaskUpdateDraftFromForm(form);
   }
 });
 
@@ -4193,6 +4395,7 @@ app.addEventListener("paste", (event) => {
   syncRichEditor(editor);
   const form = editor.closest("form");
   if (form?.dataset.action === "complete-task") syncReflectionDraftFromForm(form);
+  if (form?.dataset.action === "send-task-update") syncTaskUpdateDraftFromForm(form);
 });
 
 app.addEventListener("keydown", (event) => {
@@ -4210,6 +4413,13 @@ app.addEventListener("keydown", (event) => {
 
   if (event.key === "Escape" && state.readerModal) {
     state.readerModal = null;
+    renderApp();
+    return;
+  }
+
+  if (event.key === "Escape" && state.updateTask) {
+    state.updateTask = null;
+    resetTaskUpdateDraft();
     renderApp();
     return;
   }
@@ -4248,6 +4458,7 @@ app.addEventListener("change", async (event) => {
     renderSelectedFiles(fileInput);
     const form = fileInput.closest("form");
     if (form?.dataset.action === "complete-task") syncReflectionDraftFromForm(form);
+    if (form?.dataset.action === "send-task-update") syncTaskUpdateDraftFromForm(form);
     return;
   }
 
@@ -4403,6 +4614,7 @@ app.addEventListener("click", async (event) => {
     if (container) container.innerHTML = "";
     const form = target.closest("form");
     if (form?.dataset.action === "complete-task") syncReflectionDraftFromForm(form);
+    if (form?.dataset.action === "send-task-update") syncTaskUpdateDraftFromForm(form);
     return;
   }
 
@@ -4457,6 +4669,13 @@ app.addEventListener("click", async (event) => {
   if (target.dataset.complete) {
     state.modalTask = state.tasks.find((task) => task.id === target.dataset.complete);
     resetReflectionDraft(state.modalTask?.id || "");
+    renderApp();
+  }
+
+  if (target.dataset.updateTask) {
+    state.updateTask = state.tasks.find((task) => task.id === target.dataset.updateTask);
+    state.readerModal = null;
+    resetTaskUpdateDraft(state.updateTask?.id || "");
     renderApp();
   }
 
@@ -4625,6 +4844,12 @@ app.addEventListener("click", async (event) => {
   if (target.dataset.action === "close-modal") {
     state.modalTask = null;
     resetReflectionDraft();
+    renderApp();
+  }
+
+  if (target.dataset.action === "close-update-modal") {
+    state.updateTask = null;
+    resetTaskUpdateDraft();
     renderApp();
   }
 

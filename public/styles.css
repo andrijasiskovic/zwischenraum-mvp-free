@@ -987,6 +987,17 @@ select:focus {
   margin-top: 2px;
 }
 
+.task-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-items: center;
+}
+
+.task-row-actions .btn {
+  min-height: 42px;
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -1877,6 +1888,11 @@ button.chip.clickable:hover {
   color: #26302d;
 }
 
+.reader-actions {
+  border-top: 1px solid rgba(223, 221, 213, 0.76);
+  padding-top: 12px;
+}
+
 .group-modal-card {
   width: min(100%, 760px);
   padding: 0;
@@ -2475,6 +2491,15 @@ button.chip.clickable:hover {
   .attachment-chip {
     width: 100%;
     border-radius: 12px;
+  }
+
+  .task-row-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .task-row-actions .btn {
+    width: 100%;
   }
 
   .form-grid {

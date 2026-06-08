@@ -190,11 +190,21 @@ create table if not exists public.reflections (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.task_updates (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references public.tasks(id) on delete cascade,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  client_id uuid not null references public.profiles(id),
+  message text not null default '',
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.task_attachments (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   task_id uuid not null references public.tasks(id) on delete cascade,
   reflection_id uuid references public.reflections(id) on delete cascade,
+  task_update_id uuid references public.task_updates(id) on delete cascade,
   uploaded_by uuid not null references public.profiles(id) on delete cascade,
   file_name text not null,
   file_type text not null default 'application/octet-stream',
@@ -203,8 +213,14 @@ create table if not exists public.task_attachments (
   created_at timestamptz not null default now()
 );
 
+alter table public.task_attachments
+  add column if not exists task_update_id uuid references public.task_updates(id) on delete cascade;
+
+create index if not exists task_updates_task_idx on public.task_updates(task_id);
+create index if not exists task_updates_client_idx on public.task_updates(client_id);
 create index if not exists task_attachments_task_idx on public.task_attachments(task_id);
 create index if not exists task_attachments_reflection_idx on public.task_attachments(reflection_id);
+create index if not exists task_attachments_update_idx on public.task_attachments(task_update_id);
 
 create table if not exists public.coach_notes (
   id uuid primary key default gen_random_uuid(),
@@ -363,6 +379,7 @@ alter table public.assignment_batches enable row level security;
 alter table public.assignment_batch_recipients enable row level security;
 alter table public.tasks enable row level security;
 alter table public.reflections enable row level security;
+alter table public.task_updates enable row level security;
 alter table public.task_attachments enable row level security;
 alter table public.coach_notes enable row level security;
 alter table public.task_templates enable row level security;
@@ -649,6 +666,37 @@ drop policy if exists "clients create own reflections" on public.reflections;
 create policy "clients create own reflections" on public.reflections
 for insert to authenticated with check (client_id = auth.uid());
 
+drop policy if exists "task updates visible in task scope" on public.task_updates;
+create policy "task updates visible in task scope" on public.task_updates
+for select to authenticated using (
+  exists (
+    select 1
+    from public.tasks
+    where tasks.id = task_updates.task_id
+      and tasks.organization_id = task_updates.organization_id
+      and (
+        tasks.client_id = auth.uid()
+        or tasks.coach_id = auth.uid()
+        or public.has_org_role(tasks.organization_id, array['owner']::public.member_role[])
+        or public.is_assigned_coach(tasks.organization_id, tasks.client_id)
+      )
+  )
+);
+
+drop policy if exists "clients create updates for own open tasks" on public.task_updates;
+create policy "clients create updates for own open tasks" on public.task_updates
+for insert to authenticated with check (
+  client_id = auth.uid()
+  and exists (
+    select 1
+    from public.tasks
+    where tasks.id = task_updates.task_id
+      and tasks.organization_id = task_updates.organization_id
+      and tasks.client_id = auth.uid()
+      and tasks.status = 'open'
+  )
+);
+
 drop policy if exists "attachments visible in task scope" on public.task_attachments;
 create policy "attachments visible in task scope" on public.task_attachments
 for select to authenticated using (
@@ -678,6 +726,7 @@ for insert to authenticated with check (
       and (
         (
           task_attachments.reflection_id is null
+          and task_attachments.task_update_id is null
           and (
             tasks.coach_id = auth.uid()
             or public.has_org_role(tasks.organization_id, array['owner']::public.member_role[])
@@ -686,6 +735,7 @@ for insert to authenticated with check (
         )
         or (
           task_attachments.reflection_id is not null
+          and task_attachments.task_update_id is null
           and tasks.client_id = auth.uid()
           and exists (
             select 1
@@ -693,6 +743,18 @@ for insert to authenticated with check (
             where reflections.id = task_attachments.reflection_id
               and reflections.task_id = tasks.id
               and reflections.client_id = auth.uid()
+          )
+        )
+        or (
+          task_attachments.task_update_id is not null
+          and task_attachments.reflection_id is null
+          and tasks.client_id = auth.uid()
+          and exists (
+            select 1
+            from public.task_updates
+            where task_updates.id = task_attachments.task_update_id
+              and task_updates.task_id = tasks.id
+              and task_updates.client_id = auth.uid()
           )
         )
       )
@@ -738,6 +800,7 @@ grant select, insert, update, delete on public.assignment_batches to authenticat
 grant select, insert, update, delete on public.assignment_batch_recipients to authenticated;
 grant select, insert, update on public.tasks to authenticated;
 grant select, insert on public.reflections to authenticated;
+grant select, insert on public.task_updates to authenticated;
 grant select, insert on public.task_attachments to authenticated;
 grant select, insert on public.coach_notes to authenticated;
 grant select, insert, update, delete on public.task_templates to authenticated;
@@ -1245,6 +1308,67 @@ begin
 end;
 $$;
 
+create or replace function public.create_task_update(task_id uuid, update_message text default '')
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  task_row public.tasks;
+  new_update_id uuid;
+begin
+  select * into task_row
+  from public.tasks as tasks
+  where tasks.id = create_task_update.task_id;
+
+  if task_row.id is null or task_row.client_id <> auth.uid() then
+    raise exception 'Task not found';
+  end if;
+
+  if task_row.status = 'done' then
+    raise exception 'Task already completed';
+  end if;
+
+  insert into public.task_updates (task_id, organization_id, client_id, message)
+  values (task_row.id, task_row.organization_id, auth.uid(), coalesce(update_message, ''))
+  returning id into new_update_id;
+
+  return new_update_id;
+end;
+$$;
+
+create or replace function public.delete_task_update_draft(task_update_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  update_row public.task_updates;
+  task_row public.tasks;
+begin
+  select * into update_row
+  from public.task_updates as task_updates
+  where task_updates.id = delete_task_update_draft.task_update_id
+    and task_updates.client_id = auth.uid();
+
+  if update_row.id is null then
+    return;
+  end if;
+
+  select * into task_row
+  from public.tasks as tasks
+  where tasks.id = update_row.task_id;
+
+  if task_row.status = 'open' then
+    delete from public.task_updates as task_updates
+    where task_updates.id = update_row.id
+      and task_updates.client_id = auth.uid();
+  end if;
+end;
+$$;
+
 create or replace function public.seed_task_templates_for_org(seed_org_id uuid, seed_preset_id text)
 returns void
 language plpgsql
@@ -1509,6 +1633,8 @@ grant execute on function public.complete_task(uuid, text, text) to authenticate
 grant execute on function public.create_reflection_for_task(uuid, text, text) to authenticated;
 grant execute on function public.finish_task_after_reflection(uuid, uuid) to authenticated;
 grant execute on function public.delete_reflection_draft(uuid) to authenticated;
+grant execute on function public.create_task_update(uuid, text) to authenticated;
+grant execute on function public.delete_task_update_draft(uuid) to authenticated;
 grant execute on function public.seed_task_templates_for_org(uuid, text) to authenticated;
 grant execute on function public.remove_client_from_workspace(uuid, uuid) to authenticated;
 grant execute on function public.update_workspace_preset(uuid, text) to authenticated;
