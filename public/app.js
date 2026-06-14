@@ -1414,7 +1414,6 @@ function renderSidebar(role) {
         </div>
         <button class="icon-btn sidebar-close" data-close-menu aria-label="Menü schließen">×</button>
       </div>
-      ${renderWorkspaceSwitcher("sidebar")}
       <nav class="nav">
         ${navItems
           .map(
