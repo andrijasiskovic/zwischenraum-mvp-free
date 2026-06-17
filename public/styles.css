@@ -1885,6 +1885,63 @@ button.chip.clickable:hover {
   touch-action: auto;
 }
 
+.removal-modal {
+  width: min(100%, 680px);
+}
+
+.removal-options {
+  display: grid;
+  gap: 12px;
+}
+
+.removal-option {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  border: 1px solid rgba(223, 221, 213, 0.92);
+  border-radius: 18px;
+  padding: 16px;
+  text-align: left;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+}
+
+.removal-option:hover {
+  border-color: color-mix(in srgb, var(--primary), white 30%);
+  box-shadow: 0 14px 32px rgba(34, 44, 41, 0.1);
+}
+
+.removal-option strong {
+  font-size: 1rem;
+}
+
+.removal-option span {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.removal-option.danger {
+  border-color: rgba(197, 51, 45, 0.22);
+  background: rgba(255, 247, 245, 0.88);
+}
+
+.access-list {
+  display: grid;
+  gap: 10px;
+}
+
+.access-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(223, 221, 213, 0.8);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
 .reader-head {
   display: flex;
   justify-content: space-between;

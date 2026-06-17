@@ -66,6 +66,7 @@ const state = {
   inviteModalId: "",
   editingTemplateId: "",
   reminderModalClientId: "",
+  removalDialog: null,
   selectedTaskClientIds: [],
   selectedTaskGroupIds: [],
   pendingTaskFiles: [],
@@ -934,7 +935,7 @@ async function loadWorkspaceData() {
       : Promise.resolve({ data: [], error: null }),
     state.supabase
       .from("organization_members")
-      .select("user_id, role, active")
+      .select("user_id, role, active, profile:profiles!organization_members_user_id_fkey(id, full_name, email, contact_email, phone)")
       .eq("organization_id", orgId)
       .eq("active", true),
     state.supabase
@@ -1353,6 +1354,7 @@ function renderApp() {
       ${state.batchModalId ? renderBatchModal() : ""}
       ${state.inviteModalId ? renderInviteModal() : ""}
       ${state.reminderModalClientId ? renderReminderModal() : ""}
+      ${state.removalDialog ? renderRemovalModal() : ""}
       ${state.toast ? renderToast() : ""}
     </div>
   `;
@@ -2008,7 +2010,7 @@ function renderClientDirectory() {
                 </div>
                 <div class="client-row-actions">
                   <button class="btn small" data-client-profile="${item.client_id}">Profil</button>
-                  <button class="btn small danger subtle-danger" data-remove-client="${item.client_id}" data-client-name="${escapeHtml(item.name)}">Entfernen</button>
+                  <button class="btn small danger subtle-danger" data-open-removal="client" data-removal-id="${item.client_id}" data-removal-name="${escapeHtml(item.name)}">Entfernen</button>
                 </div>
               </article>
             `).join("")
@@ -2421,7 +2423,7 @@ function renderClientProfile() {
               <p class="muted">${escapeHtml(personEmail(client))}</p>
             </div>
             <button class="btn" data-view="clients">Zurück</button>
-            <button class="btn danger" data-remove-client="${relationship.client_id}" data-client-name="${escapeHtml(personName(client, "Client"))}">Client entfernen</button>
+            <button class="btn danger" data-open-removal="client" data-removal-id="${relationship.client_id}" data-removal-name="${escapeHtml(personName(client, "Client"))}">Client entfernen</button>
           </div>
           <div class="grid metrics client-profile-metrics">
             ${metricCard("Offen", openTasks.length)}
@@ -2703,6 +2705,45 @@ function renderInviteModal() {
   `;
 }
 
+function renderRemovalModal() {
+  const dialog = state.removalDialog;
+  if (!dialog) return "";
+  const isCoach = dialog.type === "coach";
+  const title = isCoach ? "Coach deaktivieren" : "Client entfernen";
+  const name = dialog.name || (isCoach ? "Coach" : "Client");
+  const archiveText = isCoach
+    ? "Der Coach und seine aktiven Client-Zugänge werden deaktiviert. Erledigte Verläufe bleiben für den Owner erhalten."
+    : "Der Zugriff wird entzogen. Offene Aufgaben, offene Einladungen und Gruppenzuordnungen werden bereinigt. Erledigte Verläufe bleiben erhalten.";
+  const anonymizeText = isCoach
+    ? "Zusätzlich werden personenbezogene Arbeitsdaten dieses Coaches im Workspace anonymisiert bzw. entfernt, soweit sie nicht für den technischen Account benötigt werden."
+    : "Zusätzlich werden Anhänge, private Notizen, Rückfragen und personenbezogene Inhalte im Verlauf anonymisiert bzw. entfernt.";
+
+  return `
+    <div class="modal" data-removal-backdrop>
+      <section class="modal-card stack removal-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+        <div class="toolbar">
+          <div>
+            <h2>${escapeHtml(title)}</h2>
+            <p class="muted">${escapeHtml(name)}</p>
+          </div>
+          <button class="icon-btn" data-action="close-removal-modal" aria-label="Schließen">×</button>
+        </div>
+        <div class="removal-options">
+          <button class="removal-option" data-confirm-removal="archive">
+            <strong>Zugriff entziehen</strong>
+            <span>${escapeHtml(archiveText)}</span>
+          </button>
+          <button class="removal-option danger" data-confirm-removal="anonymize">
+            <strong>Anonymisieren</strong>
+            <span>${escapeHtml(anonymizeText)}</span>
+          </button>
+        </div>
+        <p class="notice">Hinweis: Der Supabase-Login-Account selbst wird dadurch nicht aus Auth gelöscht. Für eine vollständige Account-Löschung braucht es später einen separaten Admin-/Support-Prozess.</p>
+      </section>
+    </div>
+  `;
+}
+
 function deliveryButton(provider, inviteId, title, description) {
   return `
     <button class="delivery-card" data-webmail="${provider}" data-invite-id="${inviteId}">
@@ -2800,7 +2841,45 @@ function renderSettings() {
         </label>
         <button class="btn primary">Speichern</button>
       </form>
-      ${renderTemplateSettings()}
+      <div class="stack">
+        ${renderTemplateSettings()}
+        ${isPlatformOwner() ? renderCoachAccessPanel() : ""}
+      </div>
+    </section>
+  `;
+}
+
+function renderCoachAccessPanel() {
+  const coaches = state.organizationMembers
+    .filter((member) => member.role === "coach")
+    .map((member) => ({
+      ...member,
+      name: personName(member.profile, "Coach"),
+      email: personEmail(member.profile),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "de"));
+
+  return `
+    <section class="panel stack access-panel">
+      <div>
+        <h2>Coach-Zugänge</h2>
+        <p class="muted">Owner können Testcoaches deaktivieren. Der Zugang zum Workspace wird entzogen.</p>
+      </div>
+      <div class="access-list">
+        ${
+          coaches.length
+            ? coaches.map((coach) => `
+              <article class="access-row">
+                <div>
+                  <strong>${escapeHtml(coach.name)}</strong>
+                  <p class="muted">${escapeHtml(coach.email)}</p>
+                </div>
+                <button class="btn small danger subtle-danger" data-open-removal="coach" data-removal-id="${coach.user_id}" data-removal-name="${escapeHtml(coach.name)}">Deaktivieren</button>
+              </article>
+            `).join("")
+            : `<p class="muted">Noch keine aktiven Coaches in diesem Workspace.</p>`
+        }
+      </div>
     </section>
   `;
 }
@@ -4294,22 +4373,40 @@ async function createNote(values) {
   renderApp();
 }
 
-async function removeClient(clientId, clientName) {
-  const confirmed = window.confirm(
-    `${clientName} aus diesem Workspace entfernen?\n\nDer Zugriff wird entzogen, offene Aufgaben und offene Einladungen werden gelöscht. Erledigte Aufgaben, Reflexionen und private Notizen bleiben als Verlauf für dich erhalten.`,
-  );
-  if (!confirmed) return;
-
+async function removeClient(clientId, clientName, mode = "archive") {
   const { error } = await state.supabase.rpc("remove_client_from_workspace", {
     org_id: state.organization.id,
     removed_client_id: clientId,
+    removal_mode: mode,
   });
   if (error) throw error;
 
+  state.removalDialog = null;
   state.selectedClientId = "";
   state.view = "clients";
-  state.message = "Client wurde entfernt. Zugriff, offene Aufgaben und offene Einladungen wurden bereinigt.";
+  state.message =
+    mode === "anonymize"
+      ? "Client wurde entfernt und personenbezogene Verlaufsdaten wurden anonymisiert."
+      : "Client wurde entfernt. Zugriff, offene Aufgaben und offene Einladungen wurden bereinigt.";
   await loadWorkspaceData();
+  renderApp();
+}
+
+async function deactivateCoach(coachId, coachName, mode = "archive") {
+  const { error } = await state.supabase.rpc("deactivate_coach_from_workspace", {
+    org_id: state.organization.id,
+    removed_coach_id: coachId,
+    removal_mode: mode,
+  });
+  if (error) throw error;
+
+  state.removalDialog = null;
+  state.message =
+    mode === "anonymize"
+      ? "Coach wurde deaktiviert und personenbezogene Arbeitsdaten wurden anonymisiert."
+      : "Coach wurde deaktiviert. Der Zugriff auf den Workspace wurde entzogen.";
+  await loadMemberships();
+  if (state.organization) await loadWorkspaceData();
   renderApp();
 }
 
@@ -4893,13 +4990,13 @@ app.addEventListener("click", async (event) => {
     }
   }
 
-  if (target.dataset.removeClient) {
-    try {
-      await removeClient(target.dataset.removeClient, target.dataset.clientName || "Client");
-    } catch (error) {
-      state.error = error.message;
-      renderApp();
-    }
+  if (target.dataset.openRemoval) {
+    state.removalDialog = {
+      type: target.dataset.openRemoval,
+      id: target.dataset.removalId || "",
+      name: target.dataset.removalName || "",
+    };
+    renderApp();
   }
 
   if (target.dataset.deleteTemplate) {
@@ -4988,6 +5085,20 @@ app.addEventListener("click", async (event) => {
     }
   }
 
+  if (target.dataset.confirmRemoval && state.removalDialog) {
+    try {
+      const mode = target.dataset.confirmRemoval;
+      if (state.removalDialog.type === "coach") {
+        await deactivateCoach(state.removalDialog.id, state.removalDialog.name || "Coach", mode);
+      } else {
+        await removeClient(state.removalDialog.id, state.removalDialog.name || "Client", mode);
+      }
+    } catch (error) {
+      state.error = error.message;
+      renderApp();
+    }
+  }
+
   if (target.dataset.action === "close-modal") {
     state.modalTask = null;
     resetReflectionDraft();
@@ -4997,6 +5108,11 @@ app.addEventListener("click", async (event) => {
   if (target.dataset.action === "close-update-modal") {
     state.updateTask = null;
     resetTaskUpdateDraft();
+    renderApp();
+  }
+
+  if (target.dataset.action === "close-removal-modal") {
+    state.removalDialog = null;
     renderApp();
   }
 
