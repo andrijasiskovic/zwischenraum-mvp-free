@@ -7,6 +7,8 @@ const config = {
 
 const app = document.querySelector("#app");
 const todayIso = new Date().toISOString().slice(0, 10);
+const FREE_PLAN_UPLOAD_LIMIT_MB = 50;
+const FREE_PLAN_UPLOAD_LIMIT_BYTES = FREE_PLAN_UPLOAD_LIMIT_MB * 1024 * 1024;
 
 const state = {
   supabase: null,
@@ -396,7 +398,7 @@ function renderFileField(label = "Dateien anhängen", options = {}) {
         data-file-scope="${escapeHtml(scope)}"
         accept="image/*,video/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip"
       />
-      <small class="muted">Bilder, Videos, PDFs und gängige Dokumente bis 50 MB pro Datei.</small>
+      <small class="muted">Bilder, Videos, PDFs und gängige Dokumente bis ${FREE_PLAN_UPLOAD_LIMIT_MB} MB pro Datei.</small>
       <div class="file-selection" data-file-selection aria-live="polite">${renderFileSelection(selectedFiles, scope)}</div>
     </div>
   `;
@@ -3546,7 +3548,6 @@ function withTimeout(promise, ms, message) {
 
 async function uploadAttachments(files = [], taskId, reflectionId = null, taskUpdateId = null) {
   if (!files.length) return;
-  const maxFileSize = 50 * 1024 * 1024;
 
   for (const [index, file] of files.entries()) {
     if (!file?.name) {
@@ -3555,8 +3556,8 @@ async function uploadAttachments(files = [], taskId, reflectionId = null, taskUp
     if (!file.size) {
       throw new Error(`${file.name} konnte nicht vollständig geladen werden. Bitte wähle das Video erneut aus oder speichere es zuerst lokal auf deinem Gerät.`);
     }
-    if (file.size > maxFileSize) {
-      throw new Error(`${file.name} ist größer als 50 MB.`);
+    if (file.size > FREE_PLAN_UPLOAD_LIMIT_BYTES) {
+      throw new Error(`${file.name} ist größer als ${FREE_PLAN_UPLOAD_LIMIT_MB} MB.`);
     }
 
     const path = [
@@ -3618,7 +3619,7 @@ function readableUploadError(error) {
     message.includes("file size") ||
     status === "413"
   ) {
-    return "Die Datei ist zu groß oder der Supabase-Speicher ist noch auf das alte Limit gesetzt. Bitte supabase/schema.sql erneut ausführen; danach sind bis zu 50 MB pro Datei möglich.";
+    return `Die Datei ist zu groß oder der Supabase-Speicher ist noch auf das alte Limit gesetzt. Bitte supabase/patch-upload-limit-free-max.sql im SQL Editor ausführen; danach sind bis zu ${FREE_PLAN_UPLOAD_LIMIT_MB} MB pro Datei möglich.`;
   }
 
   if (message.includes("row-level security") || message.includes("policy") || message.includes("unauthorized")) {
