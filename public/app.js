@@ -19,6 +19,11 @@ const state = {
   selectedOrganizationId: "",
   settings: null,
   preset: null,
+  clubContext: null,
+  clubLicenses: [],
+  clubTrainers: [],
+  clubTrainerStats: [],
+  clubTransfers: [],
   clients: [],
   groups: [],
   groupMembers: [],
@@ -84,6 +89,7 @@ function inviteParams() {
     code: params.get("invite") || params.get("code") || "",
     email: params.get("email") || "",
     role: params.get("role") || "",
+    kind: params.get("kind") || "standard",
     hasInviteLink: params.has("invite") || params.has("code") || params.has("email"),
   };
 }
@@ -855,17 +861,80 @@ async function loadMemberships() {
     if (settingsError) throw settingsError;
     state.settings = settings;
     state.preset = state.presets.find((preset) => preset.id === active.industry_preset_id);
+    await loadClubData();
     setTheme();
   } else {
     rememberActiveWorkspace("");
     state.settings = null;
     state.preset = null;
+    state.clubContext = null;
+    state.clubLicenses = [];
+    state.clubTrainers = [];
+    state.clubTrainerStats = [];
+    state.clubTransfers = [];
   }
+}
+
+async function loadClubData() {
+  state.clubContext = null;
+  state.clubLicenses = [];
+  state.clubTrainers = [];
+  state.clubTrainerStats = [];
+  state.clubTransfers = [];
+  if (!state.organization) return;
+
+  const { data: contextRows, error: contextError } = await state.supabase.rpc("get_club_context", {
+    org_id: state.organization.id,
+  });
+  if (contextError && !String(contextError.message || "").includes("get_club_context")) throw contextError;
+  state.clubContext = contextRows?.[0] || null;
+
+  if (isPlatformOwner()) {
+    const { data, error } = await state.supabase
+      .from("club_licenses")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error && !String(error.message || "").includes("club_licenses")) throw error;
+    state.clubLicenses = data || [];
+  }
+
+  if (state.clubContext?.club_role !== "admin") return;
+
+  const [trainers, transfers, trainerStats] = await Promise.all([
+    state.supabase
+      .from("club_trainers")
+      .select("*, profile:profiles!club_trainers_trainer_user_id_fkey(id, full_name, email, contact_email, phone)")
+      .eq("club_id", state.clubContext.club_id)
+      .order("joined_at", { ascending: true }),
+    state.supabase
+      .from("club_client_transfers")
+      .select("*, client:profiles!club_client_transfers_client_id_fkey(id, full_name, email, contact_email, phone)")
+      .eq("club_id", state.clubContext.club_id)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false }),
+    state.supabase.rpc("get_club_trainer_stats", {
+      target_club_id: state.clubContext.club_id,
+    }),
+  ]);
+  if (trainers.error) throw trainers.error;
+  if (transfers.error) throw transfers.error;
+  if (trainerStats.error) throw trainerStats.error;
+  state.clubTrainers = trainers.data || [];
+  state.clubTrainerStats = trainerStats.data || [];
+  state.clubTransfers = transfers.data || [];
 }
 
 async function loadWorkspaceData() {
   const orgId = state.organization.id;
   const role = currentRole();
+  const templateOrganizationIds = [orgId];
+  if (
+    state.clubContext?.club_role === "trainer" &&
+    state.clubContext.admin_organization_id &&
+    state.clubContext.admin_organization_id !== orgId
+  ) {
+    templateOrganizationIds.push(state.clubContext.admin_organization_id);
+  }
   const relationshipQuery = state.supabase
     .from("coach_client_relationships")
     .select("*, client:profiles!coach_client_relationships_client_id_fkey(id, full_name, email, contact_email, phone)")
@@ -963,7 +1032,7 @@ async function loadWorkspaceData() {
     state.supabase
       .from("task_templates")
       .select("*")
-      .eq("organization_id", orgId)
+      .in("organization_id", templateOrganizationIds)
       .order("created_at", { ascending: true }),
     state.supabase
       .from("task_attachments")
@@ -1150,6 +1219,8 @@ function renderAuth() {
 function renderInviteRegistration(invite) {
   const draft = invite.draft || {};
   const displayedInviteRole = invite.role || state.inviteInfo?.role || "";
+  const invitationKind = state.inviteInfo?.invitation_kind || invite.kind || "standard";
+  const isClubInvite = invitationKind === "club_admin" || invitationKind === "club_trainer";
   app.innerHTML = `
     <main class="auth-shell">
       <section class="auth-card stack">
@@ -1174,7 +1245,7 @@ function renderInviteRegistration(invite) {
             <input name="code" required data-invite-code placeholder="Code aus der E-Mail eingeben" value="${escapeHtml(invite.code || "")}" />
           </label>
           ${
-            displayedInviteRole === "coach"
+            displayedInviteRole === "coach" && !isClubInvite
               ? `<label class="field">
                   <span>Firmenname</span>
                   <input name="company_name" required autocomplete="organization" placeholder="z. B. Praxis am Park" value="${escapeHtml(draft.company_name || "")}" />
@@ -1183,6 +1254,14 @@ function renderInviteRegistration(invite) {
                   <span>Branche</span>
                   <select name="preset_id" required>${presetOptions("generic_coaching")}</select>
                 </label>`
+              : ""
+          }
+          ${
+            isClubInvite
+              ? `<div class="notice club-invite-notice">
+                  <strong>${invitationKind === "club_admin" ? "Vereinslizenz" : "Trainer-Workspace"}</strong>
+                  <span>${escapeHtml(state.inviteInfo?.club_name || "Verein")} · Branche und Branding werden automatisch übernommen.</span>
+                </div>`
               : ""
           }
           <label class="field">
@@ -1403,7 +1482,10 @@ function renderSidebar(role) {
     state.view === "clientProfile" ? ["clientProfile", "Profil"] : null,
     ["myProfile", "Mein Profil"],
     isCoachRole() ? ["reminders", "Erinnerungen"] : null,
-    role === "owner" ? ["settings", "Branding"] : null,
+    isPlatformOwner() || state.clubContext?.club_role === "admin"
+      ? ["club", isPlatformOwner() ? "Vereine" : "Verein"]
+      : null,
+    role === "owner" && state.clubContext?.club_role !== "trainer" ? ["settings", "Branding"] : null,
   ].filter(Boolean);
 
   return `
@@ -1478,6 +1560,7 @@ function navTitle() {
     clientProfile: "Profil",
     myProfile: "Mein Profil",
     reminders: "Erinnerungen",
+    club: isPlatformOwner() ? "Vereine" : "Verein",
     settings: "Branding",
   };
   return labels[state.view] || "Dashboard";
@@ -1490,6 +1573,7 @@ function renderView() {
   if (state.view === "clientProfile") return renderClientProfile();
   if (state.view === "myProfile") return renderMyProfile();
   if (state.view === "reminders") return renderReminders();
+  if (state.view === "club") return renderClubManagement();
   if (state.view === "settings") return renderSettings();
   return renderDashboard();
 }
@@ -2506,7 +2590,7 @@ function renderInvites() {
 function renderInviteForm() {
   const userId = state.session.user.id;
   const role = currentRole();
-  const showClientLimit = role === "coach";
+  const showClientLimit = role === "coach" || state.clubContext?.club_role === "admin";
   const openClientInvites = state.invitations.filter(
     (invite) =>
       !invite.accepted_at &&
@@ -2544,7 +2628,7 @@ function renderInviteForm() {
         <input name="email" type="email" required placeholder="client@example.com" />
       </label>
       ${
-        role === "owner"
+        isPlatformOwner()
           ? `
             <label class="field">
               <span>Rolle</span>
@@ -2849,6 +2933,198 @@ function renderSettings() {
   `;
 }
 
+function renderClubManagement() {
+  if (isPlatformOwner()) return renderPlatformClubManagement();
+  if (state.clubContext?.club_role === "admin") return renderClubAdminManagement();
+  return `
+    <section class="empty-card stack">
+      <h2>Keine Vereinsverwaltung verfügbar</h2>
+      <p>Dieser Workspace gehört derzeit keiner administrierbaren Vereinslizenz an.</p>
+    </section>
+  `;
+}
+
+function renderPlatformClubManagement() {
+  return `
+    <section class="stack">
+      <div class="grid two club-license-grid">
+        <form class="panel form-grid" data-action="create-club-license">
+          <div>
+            <span class="section-kicker">Neue Lizenz</span>
+            <h2>Verein anlegen</h2>
+            <p class="muted">Der Vereins-Admin erhält eine persönliche E-Mail-Einladung und richtet damit den Vereins-Workspace ein.</p>
+          </div>
+          <label class="field">
+            <span>Vereins- oder Firmenname</span>
+            <input name="name" required placeholder="z. B. Hundeschule Pfotenstark" />
+          </label>
+          <label class="field">
+            <span>E-Mail des Vereins-Admins</span>
+            <input name="admin_email" type="email" required placeholder="admin@verein.at" />
+          </label>
+          <label class="field">
+            <span>Branche</span>
+            <select name="preset_id" required>${presetOptions("dog_training")}</select>
+          </label>
+          <div class="grid two compact-fields">
+            <label class="field">
+              <span>Trainerplätze</span>
+              <input name="trainer_limit" type="number" min="1" value="10" required />
+            </label>
+            <label class="field">
+              <span>Clients je Trainer</span>
+              <input name="client_limit" type="number" min="1" value="10" required />
+            </label>
+          </div>
+          <button class="btn primary">Verein anlegen und Admin einladen</button>
+        </form>
+        <section class="panel stack">
+          <div>
+            <span class="section-kicker">Übersicht</span>
+            <h2>Vereinslizenzen</h2>
+            <p class="muted">${state.clubLicenses.length} Lizenz${state.clubLicenses.length === 1 ? "" : "en"} angelegt</p>
+          </div>
+          <div class="club-license-list">
+            ${
+              state.clubLicenses.length
+                ? state.clubLicenses.map((license) => `
+                  <article class="club-license-row">
+                    <div>
+                      <strong>${escapeHtml(license.name)}</strong>
+                      <p class="muted">${escapeHtml(license.admin_email)}</p>
+                    </div>
+                    <div class="chips">
+                      <span class="chip">${license.trainer_limit} Trainerplätze</span>
+                      <span class="chip ${license.admin_user_id ? "done" : ""}">${license.admin_user_id ? "Aktiv" : "Einladung offen"}</span>
+                    </div>
+                  </article>
+                `).join("")
+                : `<p class="muted">Noch keine Vereinslizenz angelegt.</p>`
+            }
+          </div>
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function renderClubAdminManagement() {
+  const context = state.clubContext;
+  const activeTrainers = state.clubTrainers.filter((trainer) => trainer.active);
+  const openTrainerInvites = state.invitations.filter(
+    (invite) => invite.club_license_id === context.club_id && invite.invitation_kind === "club_trainer" && !invite.accepted_at,
+  );
+  const usedSeats = activeTrainers.length + openTrainerInvites.length;
+  const limitReached = usedSeats >= context.trainer_limit;
+  const transferTargets = [
+    { id: context.admin_user_id, name: `${personName(state.profile, "Vereins-Admin")} (Vereins-Admin)` },
+    ...activeTrainers.map((trainer) => ({
+      id: trainer.trainer_user_id,
+      name: personName(trainer.profile, "Trainer"),
+    })),
+  ];
+
+  return `
+    <section class="stack">
+      <section class="panel club-summary-panel">
+        <div>
+          <span class="section-kicker">Vereinslizenz</span>
+          <h2>${escapeHtml(context.club_name)}</h2>
+          <p class="muted">Du kannst selbst Clients betreuen und zusätzlich Trainer mit getrennten Workspaces verwalten.</p>
+        </div>
+        <div class="seat-meter ${limitReached ? "is-full" : ""}">
+          <strong>${usedSeats}/${context.trainer_limit}</strong>
+          <span>Trainerplätze belegt</span>
+          <small>${activeTrainers.length} aktiv · ${openTrainerInvites.length} eingeladen</small>
+        </div>
+      </section>
+
+      <div class="grid two club-admin-grid">
+        <form class="panel form-grid" data-action="invite-club-trainer">
+          <div>
+            <h2>Trainer einladen</h2>
+            <p class="muted">Der Trainer erhält einen eigenen Workspace mit verbindlichem Vereinsbranding und maximal ${context.client_limit_per_trainer} Clients.</p>
+          </div>
+          <label class="field">
+            <span>E-Mail</span>
+            <input name="email" type="email" required placeholder="trainer@example.com" ${limitReached ? "disabled" : ""} />
+          </label>
+          <button class="btn primary" ${limitReached ? "disabled" : ""}>Trainer einladen</button>
+          ${limitReached ? `<p class="notice">Alle ${context.trainer_limit} Trainerplätze sind derzeit belegt oder reserviert.</p>` : ""}
+        </form>
+
+        <section class="panel stack">
+          <div>
+            <h2>Trainer</h2>
+            <p class="muted">Nur Status und Stammdaten. Client-Inhalte bleiben privat im jeweiligen Workspace.</p>
+          </div>
+          <div class="club-trainer-list">
+            ${
+              activeTrainers.length
+                ? activeTrainers.map((trainer) => {
+                  const stats = state.clubTrainerStats.find((item) => item.trainer_user_id === trainer.trainer_user_id) || {};
+                  return `
+                    <article class="club-trainer-row">
+                      <div>
+                        <strong>${escapeHtml(personName(trainer.profile, "Trainer"))}</strong>
+                        <p class="muted">${escapeHtml(personEmail(trainer.profile))}</p>
+                        <div class="chips trainer-usage-chips">
+                          <span class="chip">${Number(stats.active_clients || 0)} Clients</span>
+                          <span class="chip">${Number(stats.completed_tasks || 0)}/${Number(stats.total_tasks || 0)} Aufgaben erledigt</span>
+                        </div>
+                      </div>
+                      <button class="btn small danger subtle-danger" data-deactivate-club-trainer="${trainer.trainer_user_id}" data-trainer-name="${escapeHtml(personName(trainer.profile, "Trainer"))}">Deaktivieren</button>
+                    </article>
+                  `;
+                }).join("")
+                : `<p class="muted">Noch keine aktiven Trainer.</p>`
+            }
+          </div>
+          ${
+            openTrainerInvites.length
+              ? `<div class="compact-invite-list">
+                  <strong>Offene Einladungen</strong>
+                  ${openTrainerInvites.map((invite) => `<small>${escapeHtml(invite.email)}</small>`).join("")}
+                </div>`
+              : ""
+          }
+        </section>
+      </div>
+
+      <section class="panel stack club-transfer-panel">
+        <div>
+          <span class="section-kicker">Übergabe</span>
+          <h2>Clients neu zuweisen</h2>
+          <p class="muted">Nach einer Trainer-Deaktivierung kannst du dessen Clients dir selbst oder einem anderen Trainer zuweisen.</p>
+        </div>
+        <div class="club-transfer-list">
+          ${
+            state.clubTransfers.length
+              ? state.clubTransfers.map((transfer) => `
+                <form class="club-transfer-row" data-action="assign-club-transfer">
+                  <input type="hidden" name="transfer_id" value="${transfer.id}" />
+                  <div>
+                    <strong>${escapeHtml(personName(transfer.client, "Client"))}</strong>
+                    <p class="muted">${escapeHtml(personEmail(transfer.client))}</p>
+                    ${transfer.assigned_trainer_id === context.admin_user_id ? `<span class="chip done">Aktuell beim Vereins-Admin</span>` : ""}
+                  </div>
+                  <label class="field compact">
+                    <span>Zuweisen an</span>
+                    <select name="target_trainer_id" required>
+                      ${transferTargets.map((target) => `<option value="${target.id}">${escapeHtml(target.name)}</option>`).join("")}
+                    </select>
+                  </label>
+                  <button class="btn primary small">Übertragen</button>
+                </form>
+              `).join("")
+              : `<p class="muted">Aktuell warten keine Clients auf eine neue Zuweisung.</p>`
+          }
+        </div>
+      </section>
+    </section>
+  `;
+}
+
 function renderCoachAccessPanel() {
   const coaches = state.organizationMembers
     .filter((member) => member.role === "coach")
@@ -2892,8 +3168,12 @@ function renderTemplateSettings() {
   return `
     <section class="panel stack">
       <div>
-        <h2>Standard-Aufgaben</h2>
-        <p class="muted">Diese Templates stehen beim Erstellen einer Aufgabe zur Auswahl.</p>
+        <h2>${state.clubContext?.club_role === "admin" ? "Zentrale Standard-Aufgaben" : "Standard-Aufgaben"}</h2>
+        <p class="muted">${
+          state.clubContext?.club_role === "admin"
+            ? "Diese Templates stehen allen Trainern des Vereins zur Verfügung und können nur hier verwaltet werden."
+            : "Diese Templates stehen beim Erstellen einer Aufgabe zur Auswahl."
+        }</p>
       </div>
       <form class="form-grid" data-action="create-template">
         <label class="field">
@@ -3289,7 +3569,9 @@ async function submitInviteSignup(values) {
   const companyName = String(values.company_name || "").trim();
   const selectedPresetId = String(values.preset_id || "").trim();
 
-  if (inviteInfo.role === "coach" && (!companyName || !selectedPresetId)) {
+  const isClubInvite = ["club_admin", "club_trainer"].includes(inviteInfo.invitation_kind);
+
+  if (inviteInfo.role === "coach" && !isClubInvite && (!companyName || !selectedPresetId)) {
     state.error = !companyName ? "Bitte Firmennamen eingeben." : "Bitte Branche auswählen.";
     state.message = "Coach-Einladung erkannt. Ergänze bitte Firmenname und Branche für deinen Workspace.";
     renderInviteRegistration({
@@ -3359,8 +3641,8 @@ async function submitInviteSignup(values) {
 
   const { error: inviteError } = await state.supabase.rpc("accept_invitation", {
     invite_code: values.code,
-    selected_preset_id: inviteInfo.role === "coach" ? selectedPresetId : null,
-    company_name: inviteInfo.role === "coach" ? companyName : "",
+    selected_preset_id: inviteInfo.role === "coach" && !isClubInvite ? selectedPresetId : null,
+    company_name: inviteInfo.role === "coach" && !isClubInvite ? companyName : "",
   });
   if (inviteError) throw inviteError;
 
@@ -3541,6 +3823,9 @@ async function handleSubmit(event) {
     if (action === "create-group") await createGroup(values);
     if (action === "save-group") await saveGroup(values);
     if (action === "create-invite") await createInvite(values);
+    if (action === "create-club-license") await createClubLicense(values);
+    if (action === "invite-club-trainer") await inviteClubTrainer(values);
+    if (action === "assign-club-transfer") await assignClubTransfer(values);
     if (action === "save-settings") await saveSettings(values);
     if (action === "create-template") await createTemplate(values);
     if (action === "update-template") await updateTemplate(values);
@@ -3594,6 +3879,7 @@ function clearInviteParams() {
   url.searchParams.delete("code");
   url.searchParams.delete("email");
   url.searchParams.delete("role");
+  url.searchParams.delete("kind");
   window.history.replaceState({}, "", url.toString());
 }
 
@@ -3896,7 +4182,7 @@ async function deleteGroup(groupId, groupName) {
 }
 
 async function createInvite(values) {
-  const inviteRole = currentRole() === "owner" ? values.role : "client";
+  const inviteRole = isPlatformOwner() ? values.role : "client";
   const { data, error } = await state.supabase.rpc("create_invitation", {
     org_id: state.organization.id,
     invite_email: values.email,
@@ -3921,18 +4207,100 @@ async function createInvite(values) {
   renderApp();
 }
 
-function buildInviteUrl(code, email, role = "") {
+async function createClubLicense(values) {
+  const { data, error } = await state.supabase.rpc("create_club_license", {
+    source_org_id: state.organization.id,
+    license_name: values.name,
+    administrator_email: values.admin_email,
+    preset_id: values.preset_id,
+    trainer_limit_value: Number(values.trainer_limit || 10),
+    client_limit_value: Number(values.client_limit || 10),
+  });
+  if (error) throw error;
+
+  await loadMemberships();
+  await loadWorkspaceData();
+  const code = data?.[0]?.invite_code || "";
+  const invite = state.invitations.find((item) => item.code === code);
+  state.inviteModalId = invite?.id || "";
+  state.message = "Vereinslizenz wurde angelegt. Versende jetzt die Einladung an den Vereins-Admin.";
+  renderApp();
+}
+
+async function inviteClubTrainer(values) {
+  const { data, error } = await state.supabase.rpc("create_club_trainer_invitation", {
+    target_club_id: state.clubContext.club_id,
+    trainer_email: values.email,
+  });
+  if (error) {
+    const message = String(error.message || "");
+    if (message.includes("TRAINER_LIMIT_REACHED")) {
+      throw new Error(`Alle ${state.clubContext.trainer_limit} Trainerplätze sind belegt oder reserviert.`);
+    }
+    if (message.includes("already active")) {
+      throw new Error("Dieser Trainer ist bereits mit einer aktiven Vereinslizenz verbunden.");
+    }
+    if (message.includes("open invitation")) {
+      throw new Error("Für diese E-Mail-Adresse besteht bereits eine offene Trainer-Einladung.");
+    }
+    throw error;
+  }
+
+  await loadMemberships();
+  await loadWorkspaceData();
+  const invite = state.invitations.find((item) => item.code === data);
+  state.inviteModalId = invite?.id || "";
+  state.message = "Trainer-Einladung wurde erstellt.";
+  renderApp();
+}
+
+async function assignClubTransfer(values) {
+  const { error } = await state.supabase.rpc("assign_club_transfer", {
+    transfer_id: values.transfer_id,
+    target_trainer_id: values.target_trainer_id,
+  });
+  if (error) throw error;
+  state.message =
+    values.target_trainer_id === state.clubContext.admin_user_id
+      ? "Client wurde vom Vereins-Admin übernommen und kann später weitergegeben werden."
+      : "Client wurde dem gewählten Trainer zugewiesen.";
+  await loadMemberships();
+  await loadWorkspaceData();
+  renderApp();
+}
+
+async function deactivateClubTrainer(trainerId, trainerName) {
+  const confirmed = window.confirm(
+    `${trainerName} deaktivieren?\n\nDer Trainer verliert den Zugriff. Seine aktiven Clients werden nicht gelöscht, sondern erscheinen anschließend unter „Clients neu zuweisen“.`,
+  );
+  if (!confirmed) return;
+
+  const { error } = await state.supabase.rpc("deactivate_club_trainer", {
+    target_club_id: state.clubContext.club_id,
+    target_trainer_id: trainerId,
+  });
+  if (error) throw error;
+  state.message = "Trainer wurde deaktiviert. Betroffene Clients können jetzt neu zugewiesen werden.";
+  await loadMemberships();
+  await loadWorkspaceData();
+  renderApp();
+}
+
+function buildInviteUrl(code, email, role = "", kind = "standard") {
   const url = new URL(window.location.href);
   url.search = "";
   url.searchParams.set("email", email);
   if (role) {
     url.searchParams.set("role", role);
   }
+  if (kind && kind !== "standard") {
+    url.searchParams.set("kind", kind);
+  }
   return url.toString();
 }
 
 function openInviteEmail(invite) {
-  const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role);
+  const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role, invite.invitation_kind);
   const { subject, body } = inviteMessage(invite, inviteUrl);
   window.location.href = `mailto:${encodeURIComponent(invite.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
@@ -4004,6 +4372,54 @@ function inviteTargetLabel() {
 }
 
 function inviteMessage(invite, inviteUrl) {
+  const clubLicense = state.clubLicenses.find((license) => license.id === invite.club_license_id);
+  const clubName = clubLicense?.name || state.clubContext?.club_name || "deinem Verein";
+  if (invite.invitation_kind === "club_admin") {
+    return {
+      email: invite.email,
+      subject: `Einladung zur Moment:um Vereinslizenz · ${clubName}`,
+      body: [
+        "Hallo,",
+        "",
+        `du wurdest als Vereins-Admin für ${clubName} zu Moment:um eingeladen.`,
+        "",
+        "Nach der Registrierung kannst du selbst Clients begleiten, bis zu zehn Trainer mit eigenem Workspace einladen und das verbindliche Vereinsbranding sowie zentrale Templates verwalten.",
+        "",
+        `Bitte öffne diesen Link: ${inviteUrl}`,
+        "",
+        `Dein Einladungscode lautet: ${invite.code}`,
+        "",
+        "Nimm das Moment:um mit! Die wichtigsten Fortschritte entstehen zwischen den Sessions.",
+        "",
+        "Liebe Grüße",
+        "Das Moment:um Team",
+      ].join("\n"),
+    };
+  }
+
+  if (invite.invitation_kind === "club_trainer") {
+    return {
+      email: invite.email,
+      subject: `Trainer-Einladung zu Moment:um · ${clubName}`,
+      body: [
+        "Hallo,",
+        "",
+        `du wurdest von ${clubName} als Trainer:in zu Moment:um eingeladen. 🐾`,
+        "",
+        "Nach der Registrierung erhältst du automatisch deinen eigenen Workspace im Vereinsdesign. Dort kannst du deine eigenen Clients einladen, Aufgaben senden und Fortschritte begleiten.",
+        "",
+        `Bitte öffne diesen Link: ${inviteUrl}`,
+        "",
+        `Dein Einladungscode lautet: ${invite.code}`,
+        "",
+        "Nimm das Moment:um mit! Die wichtigsten Fortschritte entstehen zwischen den Sessions.",
+        "",
+        "Liebe Grüße",
+        "Das Moment:um Team",
+      ].join("\n"),
+    };
+  }
+
   const isClientInvite = invite.role === "client";
   const accessLine = isClientInvite
     ? "Nach dem Öffnen des Links kannst du deinen Zugang erstellen."
@@ -4034,7 +4450,7 @@ function inviteMessage(invite, inviteUrl) {
 }
 
 function openWebmail(provider, invite) {
-  const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role);
+  const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role, invite.invitation_kind);
   const { subject, body } = inviteMessage(invite, inviteUrl);
   const encoded = {
     to: encodeURIComponent(invite.email),
@@ -4058,7 +4474,7 @@ function openWebmail(provider, invite) {
 }
 
 async function copyInvite(invite, silent = false) {
-  const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role);
+  const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role, invite.invitation_kind);
   const { subject, body } = inviteMessage(invite, inviteUrl);
   const text = `An: ${invite.email}\nBetreff: ${subject}\n\n${body}`;
 
@@ -4074,7 +4490,7 @@ async function copyInvite(invite, silent = false) {
 }
 
 async function shareInvite(invite) {
-  const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role);
+  const inviteUrl = buildInviteUrl(invite.code, invite.email, invite.role, invite.invitation_kind);
   const { subject, body } = inviteMessage(invite, inviteUrl);
   const text = `An: ${invite.email}\n\n${body}`;
 
@@ -4307,6 +4723,12 @@ async function saveSettings(values) {
     })
     .eq("organization_id", state.organization.id);
   if (error) throw error;
+  if (state.clubContext?.club_role === "admin") {
+    const { error: syncError } = await state.supabase.rpc("sync_club_branding", {
+      target_club_id: state.clubContext.club_id,
+    });
+    if (syncError) throw syncError;
+  }
   state.message = "Branding für diese Branche gespeichert.";
   await loadMemberships();
   renderApp();
@@ -4984,6 +5406,18 @@ app.addEventListener("click", async (event) => {
   if (target.dataset.deleteGroup) {
     try {
       await deleteGroup(target.dataset.deleteGroup, target.dataset.groupName || "Gruppe");
+    } catch (error) {
+      state.error = error.message;
+      renderApp();
+    }
+  }
+
+  if (target.dataset.deactivateClubTrainer) {
+    try {
+      await deactivateClubTrainer(
+        target.dataset.deactivateClubTrainer,
+        target.dataset.trainerName || "Trainer",
+      );
     } catch (error) {
       state.error = error.message;
       renderApp();

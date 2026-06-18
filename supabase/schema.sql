@@ -106,6 +106,53 @@ create table if not exists public.invitations (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.club_licenses (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  admin_email text not null,
+  admin_user_id uuid references public.profiles(id) on delete set null,
+  admin_organization_id uuid references public.organizations(id) on delete set null,
+  industry_preset_id text not null references public.interface_presets(id),
+  trainer_limit integer not null default 10 check (trainer_limit > 0),
+  client_limit_per_trainer integer not null default 10 check (client_limit_per_trainer > 0),
+  active boolean not null default true,
+  created_by uuid not null references auth.users(id),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.club_trainers (
+  club_id uuid not null references public.club_licenses(id) on delete cascade,
+  trainer_user_id uuid not null references public.profiles(id) on delete cascade,
+  trainer_organization_id uuid not null references public.organizations(id) on delete cascade,
+  active boolean not null default true,
+  joined_at timestamptz not null default now(),
+  primary key (club_id, trainer_user_id)
+);
+
+create table if not exists public.club_client_transfers (
+  id uuid primary key default gen_random_uuid(),
+  club_id uuid not null references public.club_licenses(id) on delete cascade,
+  client_id uuid not null references public.profiles(id) on delete cascade,
+  source_trainer_id uuid not null references public.profiles(id),
+  source_organization_id uuid not null references public.organizations(id),
+  assigned_trainer_id uuid references public.profiles(id),
+  assigned_organization_id uuid references public.organizations(id),
+  status text not null default 'pending' check (status in ('pending', 'assigned')),
+  created_at timestamptz not null default now(),
+  assigned_at timestamptz
+);
+
+create unique index if not exists club_client_transfers_pending_unique
+on public.club_client_transfers(club_id, client_id, source_trainer_id)
+where status = 'pending';
+
+alter table public.invitations
+add column if not exists club_license_id uuid references public.club_licenses(id) on delete cascade;
+
+alter table public.invitations
+add column if not exists invitation_kind text not null default 'standard'
+check (invitation_kind in ('standard', 'club_admin', 'club_trainer'));
+
 create table if not exists public.coach_client_relationships (
   organization_id uuid not null references public.organizations(id) on delete cascade,
   coach_id uuid not null references public.profiles(id) on delete cascade,
@@ -380,6 +427,9 @@ alter table public.organization_settings enable row level security;
 alter table public.profiles enable row level security;
 alter table public.organization_members enable row level security;
 alter table public.invitations enable row level security;
+alter table public.club_licenses enable row level security;
+alter table public.club_trainers enable row level security;
+alter table public.club_client_transfers enable row level security;
 alter table public.coach_client_relationships enable row level security;
 alter table public.client_groups enable row level security;
 alter table public.client_group_members enable row level security;
@@ -434,6 +484,32 @@ as $$
   );
 $$;
 
+create or replace function public.is_platform_owner()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select lower(coalesce(auth.jwt() ->> 'email', '')) = 'andrija.siskovic@gmail.com';
+$$;
+
+create or replace function public.is_club_admin(club_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.club_licenses licenses
+    where licenses.id = club_id
+      and licenses.admin_user_id = auth.uid()
+      and licenses.active = true
+  );
+$$;
+
 drop policy if exists "presets are readable" on public.interface_presets;
 create policy "presets are readable" on public.interface_presets
 for select to anon, authenticated using (true);
@@ -450,6 +526,22 @@ for select to authenticated using (
       and mine.active = true
       and theirs.user_id = profiles.id
       and theirs.active = true
+  )
+  or exists (
+    select 1
+    from public.club_client_transfers transfers
+    join public.club_licenses licenses on licenses.id = transfers.club_id
+    where transfers.client_id = profiles.id
+      and licenses.admin_user_id = auth.uid()
+      and licenses.active = true
+  )
+  or exists (
+    select 1
+    from public.club_trainers trainers
+    join public.club_licenses licenses on licenses.id = trainers.club_id
+    where trainers.trainer_user_id = profiles.id
+      and licenses.admin_user_id = auth.uid()
+      and licenses.active = true
   )
 );
 
@@ -471,8 +563,22 @@ for select to authenticated using (public.is_org_member(organization_id));
 
 drop policy if exists "organization settings editable by owners" on public.organization_settings;
 create policy "organization settings editable by owners" on public.organization_settings
-for update to authenticated using (public.has_org_role(organization_id, array['owner']::public.member_role[]))
-with check (public.has_org_role(organization_id, array['owner']::public.member_role[]));
+for update to authenticated using (
+  public.has_org_role(organization_id, array['owner']::public.member_role[])
+  and not exists (
+    select 1 from public.club_trainers trainers
+    where trainers.trainer_organization_id = organization_settings.organization_id
+      and trainers.active = true
+  )
+)
+with check (
+  public.has_org_role(organization_id, array['owner']::public.member_role[])
+  and not exists (
+    select 1 from public.club_trainers trainers
+    where trainers.trainer_organization_id = organization_settings.organization_id
+      and trainers.active = true
+  )
+);
 
 drop policy if exists "members readable by members" on public.organization_members;
 create policy "members readable by members" on public.organization_members
@@ -481,6 +587,34 @@ for select to authenticated using (public.is_org_member(organization_id));
 drop policy if exists "invitations readable by owners and coaches" on public.invitations;
 create policy "invitations readable by owners and coaches" on public.invitations
 for select to authenticated using (public.has_org_role(organization_id, array['owner','coach']::public.member_role[]));
+
+drop policy if exists "club licenses visible in license scope" on public.club_licenses;
+create policy "club licenses visible in license scope" on public.club_licenses
+for select to authenticated using (
+  public.is_platform_owner()
+  or admin_user_id = auth.uid()
+  or exists (
+    select 1 from public.club_trainers trainers
+    where trainers.club_id = club_licenses.id
+      and trainers.trainer_user_id = auth.uid()
+      and trainers.active = true
+  )
+);
+
+drop policy if exists "club trainers visible to club admins and self" on public.club_trainers;
+create policy "club trainers visible to club admins and self" on public.club_trainers
+for select to authenticated using (
+  public.is_platform_owner()
+  or trainer_user_id = auth.uid()
+  or public.is_club_admin(club_id)
+);
+
+drop policy if exists "club transfers visible to club admins" on public.club_client_transfers;
+create policy "club transfers visible to club admins" on public.club_client_transfers
+for select to authenticated using (
+  public.is_platform_owner()
+  or public.is_club_admin(club_id)
+);
 
 drop policy if exists "relationships readable by org members" on public.coach_client_relationships;
 create policy "relationships readable by org members" on public.coach_client_relationships
@@ -785,12 +919,37 @@ for insert to authenticated with check (
 
 drop policy if exists "task templates readable by org members" on public.task_templates;
 create policy "task templates readable by org members" on public.task_templates
-for select to authenticated using (public.is_org_member(organization_id));
+for select to authenticated using (
+  public.is_org_member(organization_id)
+  or exists (
+    select 1
+    from public.club_trainers trainers
+    join public.club_licenses licenses on licenses.id = trainers.club_id
+    where trainers.trainer_user_id = auth.uid()
+      and trainers.active = true
+      and licenses.admin_organization_id = task_templates.organization_id
+      and licenses.active = true
+  )
+);
 
 drop policy if exists "task templates editable by owners and coaches" on public.task_templates;
 create policy "task templates editable by owners and coaches" on public.task_templates
-for all to authenticated using (public.has_org_role(organization_id, array['owner','coach']::public.member_role[]))
-with check (public.has_org_role(organization_id, array['owner','coach']::public.member_role[]));
+for all to authenticated using (
+  public.has_org_role(organization_id, array['owner','coach']::public.member_role[])
+  and not exists (
+    select 1 from public.club_trainers trainers
+    where trainers.trainer_organization_id = task_templates.organization_id
+      and trainers.active = true
+  )
+)
+with check (
+  public.has_org_role(organization_id, array['owner','coach']::public.member_role[])
+  and not exists (
+    select 1 from public.club_trainers trainers
+    where trainers.trainer_organization_id = task_templates.organization_id
+      and trainers.active = true
+  )
+);
 
 grant usage on schema public to anon, authenticated;
 
@@ -801,6 +960,9 @@ grant select on public.organizations to authenticated;
 grant select, update on public.organization_settings to authenticated;
 grant select on public.organization_members to authenticated;
 grant select on public.invitations to authenticated;
+grant select on public.club_licenses to authenticated;
+grant select on public.club_trainers to authenticated;
+grant select on public.club_client_transfers to authenticated;
 grant select on public.coach_client_relationships to authenticated;
 grant select, insert, update, delete on public.client_groups to authenticated;
 grant select, insert, delete on public.client_group_members to authenticated;
@@ -972,8 +1134,8 @@ begin
     raise exception 'Not allowed';
   end if;
 
-  if invite_role in ('owner', 'coach') and not public.has_org_role(org_id, array['owner']::public.member_role[]) then
-    raise exception 'Only owners can invite owners or coaches';
+  if invite_role in ('owner', 'coach') and not public.is_platform_owner() then
+    raise exception 'Only the platform owner can invite owners or independent coaches';
   end if;
 
   if invite_role = 'client' then
@@ -1008,6 +1170,421 @@ begin
 end;
 $$;
 
+create or replace function public.create_club_license(
+  source_org_id uuid,
+  license_name text,
+  administrator_email text,
+  preset_id text,
+  trainer_limit_value integer default 10,
+  client_limit_value integer default 10
+)
+returns table(club_id uuid, invite_code text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  new_club_id uuid;
+  new_code text;
+  invitation_org_id uuid;
+begin
+  if not public.is_platform_owner() then
+    raise exception 'Not allowed';
+  end if;
+
+  if nullif(trim(license_name), '') is null or nullif(trim(administrator_email), '') is null then
+    raise exception 'Name and administrator email are required';
+  end if;
+
+  if not exists (select 1 from public.interface_presets presets where presets.id = preset_id) then
+    raise exception 'Unknown interface preset';
+  end if;
+
+  select members.organization_id into invitation_org_id
+  from public.organization_members members
+  where members.organization_id = source_org_id
+    and members.user_id = auth.uid()
+    and members.role = 'owner'
+    and members.active = true
+  order by members.created_at
+  limit 1;
+
+  if invitation_org_id is null then
+    raise exception 'Owner workspace required';
+  end if;
+
+  insert into public.club_licenses (
+    name, admin_email, industry_preset_id, trainer_limit,
+    client_limit_per_trainer, created_by
+  ) values (
+    trim(license_name), lower(trim(administrator_email)), preset_id,
+    greatest(coalesce(trainer_limit_value, 10), 1),
+    greatest(coalesce(client_limit_value, 10), 1), auth.uid()
+  ) returning id into new_club_id;
+
+  new_code := upper(left(md5(random()::text || clock_timestamp()::text || auth.uid()::text), 10));
+  insert into public.invitations (
+    organization_id, email, role, invited_by, code, club_license_id, invitation_kind
+  ) values (
+    invitation_org_id, lower(trim(administrator_email)), 'coach', auth.uid(),
+    new_code, new_club_id, 'club_admin'
+  );
+
+  return query select new_club_id, new_code;
+end;
+$$;
+
+create or replace function public.create_club_trainer_invitation(
+  target_club_id uuid,
+  trainer_email text
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  license_row public.club_licenses;
+  active_trainers integer := 0;
+  open_trainer_invites integer := 0;
+  new_code text;
+begin
+  select * into license_row
+  from public.club_licenses licenses
+  where licenses.id = target_club_id
+    and licenses.active = true;
+
+  if license_row.id is null or license_row.admin_user_id <> auth.uid() then
+    raise exception 'Not allowed';
+  end if;
+
+  select count(*) into active_trainers
+  from public.club_trainers trainers
+  where trainers.club_id = target_club_id
+    and trainers.active = true;
+
+  select count(*) into open_trainer_invites
+  from public.invitations invitations
+  where invitations.club_license_id = target_club_id
+    and invitations.invitation_kind = 'club_trainer'
+    and invitations.accepted_at is null;
+
+  if active_trainers + open_trainer_invites >= license_row.trainer_limit then
+    raise exception 'TRAINER_LIMIT_REACHED:%', license_row.trainer_limit;
+  end if;
+
+  if exists (
+    select 1 from public.invitations invitations
+    where invitations.club_license_id = target_club_id
+      and lower(invitations.email) = lower(trim(trainer_email))
+      and invitations.invitation_kind = 'club_trainer'
+      and invitations.accepted_at is null
+  ) then
+    raise exception 'An open invitation already exists for this email';
+  end if;
+
+  if exists (
+    select 1
+    from public.club_trainers trainers
+    join public.profiles profiles on profiles.id = trainers.trainer_user_id
+    where trainers.club_id = target_club_id
+      and trainers.active = true
+      and lower(coalesce(nullif(profiles.contact_email, ''), profiles.email)) = lower(trim(trainer_email))
+  ) then
+    raise exception 'This trainer is already active in the club';
+  end if;
+
+  new_code := upper(left(md5(random()::text || clock_timestamp()::text || auth.uid()::text), 10));
+  insert into public.invitations (
+    organization_id, email, role, invited_by, code, club_license_id, invitation_kind
+  ) values (
+    license_row.admin_organization_id, lower(trim(trainer_email)), 'coach', auth.uid(),
+    new_code, target_club_id, 'club_trainer'
+  );
+
+  return new_code;
+end;
+$$;
+
+create or replace function public.get_club_context(org_id uuid)
+returns table(
+  club_id uuid,
+  club_name text,
+  club_role text,
+  admin_user_id uuid,
+  admin_organization_id uuid,
+  trainer_limit integer,
+  client_limit_per_trainer integer,
+  industry_preset_id text
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    licenses.id,
+    licenses.name,
+    case when licenses.admin_organization_id = org_id then 'admin' else 'trainer' end,
+    licenses.admin_user_id,
+    licenses.admin_organization_id,
+    licenses.trainer_limit,
+    licenses.client_limit_per_trainer,
+    licenses.industry_preset_id
+  from public.club_licenses licenses
+  left join public.club_trainers trainers
+    on trainers.club_id = licenses.id
+    and trainers.trainer_organization_id = org_id
+    and trainers.active = true
+  where licenses.active = true
+    and (
+      (
+        licenses.admin_organization_id = org_id
+        and (licenses.admin_user_id = auth.uid() or public.is_platform_owner())
+      )
+      or (
+        trainers.trainer_organization_id = org_id
+        and (trainers.trainer_user_id = auth.uid() or public.is_platform_owner())
+      )
+    )
+  limit 1;
+$$;
+
+create or replace function public.get_club_trainer_stats(target_club_id uuid)
+returns table(
+  trainer_user_id uuid,
+  active_clients bigint,
+  total_tasks bigint,
+  completed_tasks bigint
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    trainers.trainer_user_id,
+    count(distinct relationships.client_id) filter (where relationships.active = true),
+    count(distinct tasks.id),
+    count(distinct tasks.id) filter (where tasks.status = 'done')
+  from public.club_trainers trainers
+  join public.club_licenses licenses on licenses.id = trainers.club_id
+  left join public.coach_client_relationships relationships
+    on relationships.organization_id = trainers.trainer_organization_id
+    and relationships.coach_id = trainers.trainer_user_id
+  left join public.tasks tasks
+    on tasks.organization_id = trainers.trainer_organization_id
+    and tasks.coach_id = trainers.trainer_user_id
+  where trainers.club_id = target_club_id
+    and (
+      licenses.admin_user_id = auth.uid()
+      or public.is_platform_owner()
+    )
+  group by trainers.trainer_user_id;
+$$;
+
+create or replace function public.sync_club_branding(target_club_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  license_row public.club_licenses;
+  source_settings public.organization_settings;
+begin
+  select * into license_row from public.club_licenses where id = target_club_id and active = true;
+  if license_row.id is null or license_row.admin_user_id <> auth.uid() then
+    raise exception 'Not allowed';
+  end if;
+
+  select * into source_settings
+  from public.organization_settings
+  where organization_id = license_row.admin_organization_id;
+
+  update public.organizations organizations
+  set industry_preset_id = license_row.industry_preset_id
+  where organizations.id in (
+    select trainers.trainer_organization_id
+    from public.club_trainers trainers
+    where trainers.club_id = target_club_id and trainers.active = true
+  );
+
+  update public.organization_settings settings
+  set display_name = source_settings.display_name,
+      logo_text = source_settings.logo_text,
+      logo_url = source_settings.logo_url,
+      hero_image_url = source_settings.hero_image_url,
+      primary_color = source_settings.primary_color,
+      secondary_color = source_settings.secondary_color,
+      brand_profiles = source_settings.brand_profiles,
+      client_limit = license_row.client_limit_per_trainer,
+      plan_name = 'club',
+      updated_at = now()
+  where settings.organization_id in (
+    select trainers.trainer_organization_id
+    from public.club_trainers trainers
+    where trainers.club_id = target_club_id and trainers.active = true
+  );
+end;
+$$;
+
+create or replace function public.deactivate_club_trainer(
+  target_club_id uuid,
+  target_trainer_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  license_row public.club_licenses;
+  trainer_row public.club_trainers;
+begin
+  select * into license_row
+  from public.club_licenses licenses
+  where licenses.id = target_club_id and licenses.active = true;
+
+  if license_row.id is null or license_row.admin_user_id <> auth.uid() then
+    raise exception 'Not allowed';
+  end if;
+
+  select * into trainer_row
+  from public.club_trainers trainers
+  where trainers.club_id = target_club_id
+    and trainers.trainer_user_id = target_trainer_id
+    and trainers.active = true;
+
+  if trainer_row.club_id is null then
+    raise exception 'Trainer not found';
+  end if;
+
+  insert into public.club_client_transfers (
+    club_id, client_id, source_trainer_id, source_organization_id
+  )
+  select
+    target_club_id, relationships.client_id, target_trainer_id,
+    trainer_row.trainer_organization_id
+  from public.coach_client_relationships relationships
+  where relationships.organization_id = trainer_row.trainer_organization_id
+    and relationships.coach_id = target_trainer_id
+    and relationships.active = true
+  on conflict do nothing;
+
+  update public.coach_client_relationships
+  set active = false
+  where organization_id = trainer_row.trainer_organization_id
+    and coach_id = target_trainer_id;
+
+  update public.organization_members members
+  set active = false
+  where members.organization_id = trainer_row.trainer_organization_id
+    and members.role = 'client';
+
+  update public.organization_members
+  set active = false
+  where organization_id = trainer_row.trainer_organization_id
+    and user_id = target_trainer_id;
+
+  update public.club_trainers
+  set active = false
+  where club_id = target_club_id
+    and trainer_user_id = target_trainer_id;
+
+  delete from public.invitations invitations
+  where invitations.organization_id = trainer_row.trainer_organization_id
+    and invitations.accepted_at is null;
+end;
+$$;
+
+create or replace function public.assign_club_transfer(
+  transfer_id uuid,
+  target_trainer_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  transfer_row public.club_client_transfers;
+  license_row public.club_licenses;
+  target_org_id uuid;
+begin
+  select * into transfer_row
+  from public.club_client_transfers transfers
+  where transfers.id = transfer_id
+    and transfers.status = 'pending';
+
+  if transfer_row.id is null then
+    raise exception 'Transfer not found';
+  end if;
+
+  select * into license_row
+  from public.club_licenses licenses
+  where licenses.id = transfer_row.club_id and licenses.active = true;
+
+  if license_row.id is null or license_row.admin_user_id <> auth.uid() then
+    raise exception 'Not allowed';
+  end if;
+
+  if target_trainer_id = license_row.admin_user_id then
+    target_org_id := license_row.admin_organization_id;
+  else
+    select trainers.trainer_organization_id into target_org_id
+    from public.club_trainers trainers
+    where trainers.club_id = transfer_row.club_id
+      and trainers.trainer_user_id = target_trainer_id
+      and trainers.active = true;
+  end if;
+
+  if target_org_id is null then
+    raise exception 'Target trainer not found';
+  end if;
+
+  if transfer_row.assigned_organization_id is not null
+     and transfer_row.assigned_trainer_id is not null
+     and transfer_row.assigned_trainer_id <> target_trainer_id then
+    update public.coach_client_relationships
+    set active = false
+    where organization_id = transfer_row.assigned_organization_id
+      and coach_id = transfer_row.assigned_trainer_id
+      and client_id = transfer_row.client_id;
+
+    update public.organization_members members
+    set active = false
+    where members.organization_id = transfer_row.assigned_organization_id
+      and members.user_id = transfer_row.client_id
+      and members.role = 'client'
+      and not exists (
+        select 1 from public.coach_client_relationships relationships
+        where relationships.organization_id = transfer_row.assigned_organization_id
+          and relationships.client_id = transfer_row.client_id
+          and relationships.active = true
+      );
+  end if;
+
+  insert into public.organization_members (organization_id, user_id, role, active)
+  values (target_org_id, transfer_row.client_id, 'client', true)
+  on conflict (organization_id, user_id) do update
+    set role = 'client', active = true;
+
+  insert into public.coach_client_relationships (
+    organization_id, coach_id, client_id, active
+  ) values (
+    target_org_id, target_trainer_id, transfer_row.client_id, true
+  )
+  on conflict (organization_id, coach_id, client_id) do update
+    set active = true;
+
+  update public.club_client_transfers
+  set assigned_trainer_id = target_trainer_id,
+      assigned_organization_id = target_org_id,
+      status = case when target_trainer_id = license_row.admin_user_id then 'pending' else 'assigned' end,
+      assigned_at = now()
+  where id = transfer_row.id;
+end;
+$$;
+
 drop function if exists public.accept_invitation(text, text);
 
 create or replace function public.accept_invitation(
@@ -1023,6 +1600,7 @@ as $$
 declare
   invite public.invitations;
   profile_row public.profiles;
+  license_row public.club_licenses;
   user_email text;
   new_org_id uuid;
   preset_row public.interface_presets;
@@ -1030,6 +1608,7 @@ declare
   active_client_count integer := 0;
   current_client_limit integer := 10;
   target_coach_id uuid;
+  active_trainer_count integer := 0;
 begin
   profile_row := public.ensure_profile('');
   user_email := lower(coalesce((auth.jwt() ->> 'email'), ''));
@@ -1048,19 +1627,52 @@ begin
   end if;
 
   if invite.role = 'coach' then
-    select * into preset_row
-    from public.interface_presets
-    where id = coalesce(selected_preset_id, 'generic_coaching');
+    if invite.club_license_id is not null then
+      select * into license_row
+      from public.club_licenses licenses
+      where licenses.id = invite.club_license_id
+        and licenses.active = true;
+
+      if license_row.id is null then
+        raise exception 'Club license not found';
+      end if;
+
+      if invite.invitation_kind = 'club_trainer' then
+        select count(*) into active_trainer_count
+        from public.club_trainers trainers
+        where trainers.club_id = license_row.id
+          and trainers.active = true;
+
+        if active_trainer_count >= license_row.trainer_limit then
+          raise exception 'TRAINER_LIMIT_REACHED:%', license_row.trainer_limit;
+        end if;
+      end if;
+
+      select * into preset_row
+      from public.interface_presets
+      where id = license_row.industry_preset_id;
+    else
+      select * into preset_row
+      from public.interface_presets
+      where id = coalesce(selected_preset_id, 'generic_coaching');
+    end if;
 
     if preset_row.id is null then
       raise exception 'Unknown interface preset';
     end if;
 
-    workspace_name := coalesce(
-      nullif(trim(company_name), ''),
-      nullif(profile_row.full_name, ''),
-      split_part(user_email, '@', 1)
-    );
+    workspace_name := case
+      when invite.invitation_kind = 'club_admin' then license_row.name
+      when invite.invitation_kind = 'club_trainer' then coalesce(
+        nullif(profile_row.full_name, ''),
+        split_part(user_email, '@', 1)
+      ) || ' · ' || license_row.name
+      else coalesce(
+        nullif(trim(company_name), ''),
+        nullif(profile_row.full_name, ''),
+        split_part(user_email, '@', 1)
+      )
+    end;
 
     insert into public.organizations (name, industry_preset_id, created_by)
     values (
@@ -1073,29 +1685,60 @@ begin
     insert into public.organization_members (organization_id, user_id, role)
     values (new_org_id, auth.uid(), 'owner');
 
-    insert into public.organization_settings (
-      organization_id, display_name, logo_text, hero_image_url, primary_color, secondary_color, brand_profiles
-    ) values (
-      new_org_id,
-      workspace_name,
-      upper(left(regexp_replace(workspace_name, '[^A-Za-z0-9]', '', 'g'), 2)),
-      '',
-      preset_row.accent_color,
-      preset_row.support_color,
-      jsonb_build_object(
-        preset_row.id,
-        jsonb_build_object(
-          'display_name', workspace_name,
-          'logo_text', upper(left(regexp_replace(workspace_name, '[^A-Za-z0-9]', '', 'g'), 2)),
-          'logo_url', '',
-          'hero_image_url', '',
-          'primary_color', preset_row.accent_color,
-          'secondary_color', preset_row.support_color
-        )
+    if invite.invitation_kind = 'club_trainer' then
+      insert into public.organization_settings (
+        organization_id, display_name, logo_text, logo_url, hero_image_url,
+        primary_color, secondary_color, brand_profiles, client_limit, plan_name
       )
-    );
+      select
+        new_org_id, settings.display_name, settings.logo_text, settings.logo_url,
+        settings.hero_image_url, settings.primary_color, settings.secondary_color,
+        settings.brand_profiles, license_row.client_limit_per_trainer, 'club'
+      from public.organization_settings settings
+      where settings.organization_id = license_row.admin_organization_id;
 
-    perform public.seed_task_templates_for_org(new_org_id, preset_row.id);
+      insert into public.club_trainers (club_id, trainer_user_id, trainer_organization_id)
+      values (license_row.id, auth.uid(), new_org_id)
+      on conflict (club_id, trainer_user_id) do update
+        set trainer_organization_id = excluded.trainer_organization_id,
+            active = true,
+            joined_at = now();
+    else
+      insert into public.organization_settings (
+        organization_id, display_name, logo_text, hero_image_url, primary_color,
+        secondary_color, brand_profiles, client_limit, plan_name
+      ) values (
+        new_org_id,
+        workspace_name,
+        upper(left(regexp_replace(workspace_name, '[^A-Za-z0-9]', '', 'g'), 2)),
+        '',
+        preset_row.accent_color,
+        preset_row.support_color,
+        jsonb_build_object(
+          preset_row.id,
+          jsonb_build_object(
+            'display_name', workspace_name,
+            'logo_text', upper(left(regexp_replace(workspace_name, '[^A-Za-z0-9]', '', 'g'), 2)),
+            'logo_url', '',
+            'hero_image_url', '',
+            'primary_color', preset_row.accent_color,
+            'secondary_color', preset_row.support_color
+          )
+        ),
+        case when invite.invitation_kind = 'club_admin' then license_row.client_limit_per_trainer else 10 end,
+        case when invite.invitation_kind = 'club_admin' then 'club' else 'test' end
+      );
+
+      perform public.seed_task_templates_for_org(new_org_id, preset_row.id);
+
+      if invite.invitation_kind = 'club_admin' then
+        update public.club_licenses
+        set admin_user_id = auth.uid(),
+            admin_organization_id = new_org_id,
+            admin_email = user_email
+        where id = license_row.id;
+      end if;
+    end if;
   else
     insert into public.organization_members (organization_id, user_id, role)
     values (invite.organization_id, auth.uid(), invite.role)
@@ -1165,14 +1808,26 @@ where invitations.role = 'client'
   and invitations.accepted_at is not null
 on conflict (organization_id, coach_id, client_id) do nothing;
 
+drop function if exists public.get_invitation_info(text, text);
+
 create or replace function public.get_invitation_info(invite_code text, invite_email text)
-returns table(role public.member_role)
+returns table(
+  role public.member_role,
+  invitation_kind text,
+  club_name text,
+  preset_id text
+)
 language sql
 security definer
 set search_path = public
 as $$
-  select invitations.role
+  select
+    invitations.role,
+    invitations.invitation_kind,
+    licenses.name,
+    licenses.industry_preset_id
   from public.invitations
+  left join public.club_licenses licenses on licenses.id = invitations.club_license_id
   where invitations.code = upper(invite_code)
     and lower(invitations.email) = lower(invite_email)
     and invitations.accepted_at is null
@@ -1886,6 +2541,13 @@ end $$;
 grant execute on function public.ensure_profile(text) to authenticated;
 grant execute on function public.create_workspace(text, text) to authenticated;
 grant execute on function public.create_invitation(uuid, text, public.member_role, uuid) to authenticated;
+grant execute on function public.create_club_license(uuid, text, text, text, integer, integer) to authenticated;
+grant execute on function public.create_club_trainer_invitation(uuid, text) to authenticated;
+grant execute on function public.get_club_context(uuid) to authenticated;
+grant execute on function public.get_club_trainer_stats(uuid) to authenticated;
+grant execute on function public.sync_club_branding(uuid) to authenticated;
+grant execute on function public.deactivate_club_trainer(uuid, uuid) to authenticated;
+grant execute on function public.assign_club_transfer(uuid, uuid) to authenticated;
 grant execute on function public.accept_invitation(text, text, text) to authenticated;
 grant execute on function public.get_invitation_info(text, text) to anon, authenticated;
 grant execute on function public.complete_task(uuid, text, text) to authenticated;

@@ -1942,6 +1942,97 @@ button.chip.clickable:hover {
   background: rgba(255, 255, 255, 0.72);
 }
 
+.club-summary-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.seat-meter {
+  display: grid;
+  min-width: 170px;
+  gap: 2px;
+  border-left: 4px solid var(--primary);
+  padding: 8px 0 8px 16px;
+}
+
+.seat-meter strong {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.seat-meter span {
+  font-weight: 800;
+}
+
+.seat-meter small,
+.compact-invite-list small {
+  color: var(--muted);
+}
+
+.seat-meter.is-full {
+  border-left-color: var(--danger);
+}
+
+.club-license-list,
+.club-trainer-list,
+.club-transfer-list,
+.compact-invite-list {
+  display: grid;
+  gap: 10px;
+}
+
+.club-license-row,
+.club-trainer-row,
+.club-transfer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid rgba(223, 221, 213, 0.82);
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.club-transfer-row .field {
+  min-width: min(260px, 100%);
+  margin-left: auto;
+}
+
+.compact-invite-list {
+  border-top: 1px solid rgba(223, 221, 213, 0.72);
+  padding-top: 12px;
+}
+
+.club-invite-notice {
+  display: grid;
+  gap: 3px;
+}
+
+@media (max-width: 720px) {
+  .club-summary-panel,
+  .club-license-row,
+  .club-trainer-row,
+  .club-transfer-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .seat-meter {
+    min-width: 0;
+  }
+
+  .club-license-row .chips,
+  .club-trainer-row .btn,
+  .club-transfer-row .field,
+  .club-transfer-row .btn {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
 .reader-head {
   display: flex;
   justify-content: space-between;
