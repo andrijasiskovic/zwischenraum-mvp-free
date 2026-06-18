@@ -980,7 +980,7 @@ values (
   'brand-assets',
   'brand-assets',
   true,
-  2097152,
+  10485760,
   array['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']
 )
 on conflict (id) do update

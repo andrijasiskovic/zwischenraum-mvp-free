@@ -9,6 +9,8 @@ const app = document.querySelector("#app");
 const todayIso = new Date().toISOString().slice(0, 10);
 const FREE_PLAN_UPLOAD_LIMIT_MB = 50;
 const FREE_PLAN_UPLOAD_LIMIT_BYTES = FREE_PLAN_UPLOAD_LIMIT_MB * 1024 * 1024;
+const BRAND_UPLOAD_LIMIT_MB = 10;
+const BRAND_UPLOAD_LIMIT_BYTES = BRAND_UPLOAD_LIMIT_MB * 1024 * 1024;
 
 const state = {
   supabase: null,
@@ -2923,7 +2925,9 @@ function renderSettings() {
           <span>Sekundärfarbe</span>
           <input name="secondary_color" type="color" value="${escapeHtml(brand.secondary_color)}" />
         </label>
-        <button class="btn primary">Speichern</button>
+        <button class="btn primary" data-submit-button data-default-label="Speichern">Speichern</button>
+        <p class="submit-status" data-submit-status hidden></p>
+        <p class="form-submit-error" data-submit-error hidden></p>
       </form>
       <div class="stack">
         ${renderTemplateSettings()}
@@ -3813,6 +3817,14 @@ async function handleSubmit(event) {
     if (action === "answer-task-update") {
       setSubmitBusy(form, true, "Antwort wird gesendet...");
     }
+    if (action === "save-settings") {
+      const hasBrandFile = [values.logo_file, values.hero_file].some((file) => file?.size > 0);
+      setSubmitBusy(
+        form,
+        true,
+        hasBrandFile ? "Bild wird hochgeladen und Branding gespeichert..." : "Branding wird gespeichert...",
+      );
+    }
     if (action === "auth") await submitAuth(form, event.submitter);
     if (action === "invite-signup") await submitInviteSignup(values);
     if (action === "update-profile-name") await updateProfileName(values);
@@ -3838,7 +3850,8 @@ async function handleSubmit(event) {
     if (action === "complete-task") setSubmitBusy(form, false);
     if (action === "send-task-update") setSubmitBusy(form, false);
     if (action === "answer-task-update") setSubmitBusy(form, false);
-    if (["complete-task", "create-task", "send-task-update", "answer-task-update"].includes(action) && showFormSubmitError(form, error.message)) {
+    if (action === "save-settings") setSubmitBusy(form, false);
+    if (["complete-task", "create-task", "send-task-update", "answer-task-update", "save-settings"].includes(action) && showFormSubmitError(form, error.message)) {
       return;
     }
     if (inviteParams().hasInviteLink) {
@@ -4652,6 +4665,9 @@ async function copyReminder(row, silent = false) {
 
 async function uploadBrandAsset(file, folder) {
   if (!file || file.size <= 0) return "";
+  if (file.size > BRAND_UPLOAD_LIMIT_BYTES) {
+    throw new Error(`Logo und Header-Bilder dürfen maximal ${BRAND_UPLOAD_LIMIT_MB} MB groß sein.`);
+  }
 
   const safeName = file.name.toLowerCase().replace(/[^a-z0-9.]+/g, "-");
   const path = `${state.organization.id}/${folder}/${Date.now()}-${safeName}`;
@@ -4668,6 +4684,9 @@ async function uploadBrandAsset(file, folder) {
 }
 
 async function saveSettings(values) {
+  if (state.clubContext?.club_role === "trainer") {
+    throw new Error("Das Vereinsbranding wird zentral vom Vereins-Admin verwaltet und kann von Trainern nicht geändert werden.");
+  }
   const presetId = values.preset || state.organization.industry_preset_id;
   let logoUrl = values.logo_url || "";
   const logoFile = values.logo_file;
@@ -4710,7 +4729,7 @@ async function saveSettings(values) {
     },
   };
 
-  const { error } = await state.supabase
+  const { data: savedSettings, error } = await state.supabase
     .from("organization_settings")
     .update({
       display_name: values.display_name,
@@ -4721,17 +4740,21 @@ async function saveSettings(values) {
       secondary_color: values.secondary_color,
       brand_profiles: brandProfiles,
     })
-    .eq("organization_id", state.organization.id);
+    .eq("organization_id", state.organization.id)
+    .select("organization_id")
+    .maybeSingle();
   if (error) throw error;
+  if (!savedSettings) {
+    throw new Error("Das Branding konnte für diesen Workspace nicht gespeichert werden. Bitte lade die App neu und versuche es erneut.");
+  }
   if (state.clubContext?.club_role === "admin") {
     const { error: syncError } = await state.supabase.rpc("sync_club_branding", {
       target_club_id: state.clubContext.club_id,
     });
     if (syncError) throw syncError;
   }
-  state.message = "Branding für diese Branche gespeichert.";
   await loadMemberships();
-  renderApp();
+  showToast("Branding erfolgreich gespeichert");
 }
 
 async function createTemplate(values) {
