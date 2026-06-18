@@ -1945,8 +1945,7 @@ button.chip.clickable:hover {
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.3);
 }
 
-.color-picker-preview span,
-.color-picker-preview strong {
+.color-picker-preview span {
   font-weight: 900;
 }
 
@@ -1995,30 +1994,6 @@ button.chip.clickable:hover {
 
 [data-color-picker-hue] {
   background: linear-gradient(90deg, #d86b6b, #d8ca6b, #73bf80, #6bc7d8, #7785d2, #b879cf, #d86b6b);
-}
-
-[data-color-picker-saturation] {
-  background: linear-gradient(90deg, #d8ddda, var(--primary));
-}
-
-[data-color-picker-brightness] {
-  background: linear-gradient(90deg, #28312e, #ffffff);
-  box-shadow: inset 0 0 0 1px rgba(32, 43, 40, 0.12);
-}
-
-.color-quick-picks {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 8px;
-}
-
-.color-quick-picks button {
-  aspect-ratio: 1;
-  min-width: 0;
-  border: 3px solid white;
-  border-radius: 10px;
-  box-shadow: 0 0 0 1px rgba(32, 43, 40, 0.14);
-  cursor: pointer;
 }
 
 .removal-options {
@@ -2144,10 +2119,6 @@ button.chip.clickable:hover {
 }
 
 @media (max-width: 720px) {
-  .color-quick-picks {
-    grid-template-columns: repeat(4, 1fr);
-  }
-
   .brand-color-trigger {
     grid-template-columns: 36px 1fr auto;
   }

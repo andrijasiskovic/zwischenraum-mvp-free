@@ -2901,7 +2901,6 @@ function renderColorPickerModal() {
   const picker = state.colorPicker;
   if (!picker) return "";
   const color = hsvToHex(picker.hue, picker.saturation, picker.brightness);
-  const quickColors = ["#78A880", "#7FAEA3", "#6FA6B3", "#93A9C8", "#B7A7C9", "#D4A5A5", "#D2B878", "#87908C"];
   return `
     <div class="modal" data-color-picker-backdrop>
       <section class="modal-card stack color-picker-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(picker.label)} auswählen">
@@ -2914,31 +2913,13 @@ function renderColorPickerModal() {
         </div>
         <div class="color-picker-preview" data-color-picker-preview style="background:${color}">
           <span>${escapeHtml(picker.label)}</span>
-          <strong data-color-picker-code>${color}</strong>
         </div>
         <div class="color-picker-controls">
           <label>
             <span>Farbton</span>
             <input type="range" min="0" max="359" value="${picker.hue}" data-color-picker-hue />
           </label>
-          <label>
-            <span>Sättigung</span>
-            <input type="range" min="0" max="100" value="${picker.saturation}" data-color-picker-saturation />
-          </label>
-          <label>
-            <span>Helligkeit</span>
-            <input type="range" min="15" max="100" value="${picker.brightness}" data-color-picker-brightness />
-          </label>
         </div>
-        <div class="color-quick-picks" aria-label="Schnellfarben">
-          ${quickColors.map((quickColor) => `
-            <button type="button" data-color-quick-pick="${quickColor}" title="${quickColor}" style="background:${quickColor}"></button>
-          `).join("")}
-        </div>
-        <label class="field">
-          <span>Hex-Code</span>
-          <input data-color-picker-hex value="${color}" maxlength="7" inputmode="text" autocomplete="off" />
-        </label>
         <div class="modal-actions">
           <button class="btn" type="button" data-action="close-color-picker">Abbrechen</button>
           <button class="btn primary" type="button" data-apply-color-picker>Farbe übernehmen</button>
@@ -2951,7 +2932,14 @@ function renderColorPickerModal() {
 function openColorPicker(name, label) {
   const field = document.querySelector(`[data-brand-color-field="${name}"]`);
   const value = field?.querySelector("[data-brand-color-value]")?.value || "#7FAEA3";
-  state.colorPicker = { name, label, ...hexToHsv(value) };
+  const current = hexToHsv(value);
+  state.colorPicker = {
+    name,
+    label,
+    hue: current.hue,
+    saturation: 38,
+    brightness: 72,
+  };
   document.querySelector(".app-shell")?.insertAdjacentHTML("beforeend", renderColorPickerModal());
 }
 
@@ -2968,17 +2956,9 @@ function refreshColorPicker() {
     state.colorPicker.brightness,
   );
   const preview = document.querySelector("[data-color-picker-preview]");
-  const code = document.querySelector("[data-color-picker-code]");
-  const hex = document.querySelector("[data-color-picker-hex]");
   const hue = document.querySelector("[data-color-picker-hue]");
-  const saturation = document.querySelector("[data-color-picker-saturation]");
-  const brightness = document.querySelector("[data-color-picker-brightness]");
   if (preview) preview.style.background = color;
-  if (code) code.textContent = color;
-  if (hex && document.activeElement !== hex) hex.value = color;
   if (hue && document.activeElement !== hue) hue.value = state.colorPicker.hue;
-  if (saturation && document.activeElement !== saturation) saturation.value = state.colorPicker.saturation;
-  if (brightness && document.activeElement !== brightness) brightness.value = state.colorPicker.brightness;
 }
 
 function applyColorPicker() {
@@ -5294,18 +5274,9 @@ app.addEventListener("keydown", (event) => {
 app.addEventListener("input", (event) => {
   if (!state.colorPicker) return;
   const hue = event.target.closest("[data-color-picker-hue]");
-  const saturation = event.target.closest("[data-color-picker-saturation]");
-  const brightness = event.target.closest("[data-color-picker-brightness]");
-  const hex = event.target.closest("[data-color-picker-hex]");
 
   if (hue) state.colorPicker.hue = Number(hue.value);
-  if (saturation) state.colorPicker.saturation = Number(saturation.value);
-  if (brightness) state.colorPicker.brightness = Number(brightness.value);
-  if (hex) {
-    const normalized = normalizeHexColor(hex.value, "");
-    if (normalized) Object.assign(state.colorPicker, hexToHsv(normalized));
-  }
-  if (hue || saturation || brightness || hex) refreshColorPicker();
+  if (hue) refreshColorPicker();
 });
 
 app.addEventListener("change", async (event) => {
@@ -5466,12 +5437,6 @@ app.addEventListener("click", async (event) => {
 
   if (target.dataset.openBrandColor) {
     openColorPicker(target.dataset.openBrandColor, target.dataset.colorLabel || "Farbe");
-    return;
-  }
-
-  if (target.dataset.colorQuickPick) {
-    Object.assign(state.colorPicker, hexToHsv(target.dataset.colorQuickPick));
-    refreshColorPicker();
     return;
   }
 
