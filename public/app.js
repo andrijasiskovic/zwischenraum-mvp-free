@@ -74,6 +74,7 @@ const state = {
   editingTemplateId: "",
   reminderModalClientId: "",
   removalDialog: null,
+  colorPicker: null,
   selectedTaskClientIds: [],
   selectedTaskGroupIds: [],
   pendingTaskFiles: [],
@@ -625,6 +626,71 @@ const activeClientMemberIds = () =>
       .map((member) => member.user_id),
   );
 const rolePriority = (role = "") => ({ owner: 0, coach: 1, client: 2 })[role] ?? 9;
+
+function normalizeHexColor(value, fallback = "#7FAEA3") {
+  const raw = String(value || "").trim();
+  const short = raw.match(/^#?([0-9a-f]{3})$/i)?.[1];
+  if (short) return `#${short.split("").map((part) => part + part).join("")}`.toUpperCase();
+  const full = raw.match(/^#?([0-9a-f]{6})$/i)?.[1];
+  return full ? `#${full.toUpperCase()}` : fallback;
+}
+
+function hexToHsv(value) {
+  const hex = normalizeHexColor(value).slice(1);
+  const red = parseInt(hex.slice(0, 2), 16) / 255;
+  const green = parseInt(hex.slice(2, 4), 16) / 255;
+  const blue = parseInt(hex.slice(4, 6), 16) / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const delta = max - min;
+  let hue = 0;
+  if (delta) {
+    if (max === red) hue = 60 * (((green - blue) / delta) % 6);
+    if (max === green) hue = 60 * ((blue - red) / delta + 2);
+    if (max === blue) hue = 60 * ((red - green) / delta + 4);
+  }
+  if (hue < 0) hue += 360;
+  return {
+    hue: Math.round(hue),
+    saturation: max ? Math.round((delta / max) * 100) : 0,
+    brightness: Math.round(max * 100),
+  };
+}
+
+function hsvToHex(hue, saturation, brightness) {
+  const h = ((Number(hue) % 360) + 360) % 360;
+  const s = Math.max(0, Math.min(100, Number(saturation))) / 100;
+  const v = Math.max(0, Math.min(100, Number(brightness))) / 100;
+  const chroma = v * s;
+  const segment = h / 60;
+  const x = chroma * (1 - Math.abs((segment % 2) - 1));
+  let [red, green, blue] = [0, 0, 0];
+  if (segment < 1) [red, green] = [chroma, x];
+  else if (segment < 2) [red, green] = [x, chroma];
+  else if (segment < 3) [green, blue] = [chroma, x];
+  else if (segment < 4) [green, blue] = [x, chroma];
+  else if (segment < 5) [red, blue] = [x, chroma];
+  else [red, blue] = [chroma, x];
+  const match = v - chroma;
+  return `#${[red, green, blue]
+    .map((part) => Math.round((part + match) * 255).toString(16).padStart(2, "0"))
+    .join("")}`.toUpperCase();
+}
+
+function renderBrandColorField(name, label, value) {
+  const color = normalizeHexColor(value);
+  return `
+    <label class="field brand-color-field" data-brand-color-field="${escapeHtml(name)}">
+      <span>${escapeHtml(label)}</span>
+      <input type="hidden" name="${escapeHtml(name)}" value="${color}" data-brand-color-value />
+      <button class="brand-color-trigger" type="button" data-open-brand-color="${escapeHtml(name)}" data-color-label="${escapeHtml(label)}">
+        <span class="brand-color-swatch" data-brand-color-swatch style="background:${color}"></span>
+        <strong data-brand-color-code>${color}</strong>
+        <span>Auswählen</span>
+      </button>
+    </label>
+  `;
+}
 
 function workspaceStorageKey() {
   return `momentum.activeWorkspace.${state.session?.user?.id || "anonymous"}`;
@@ -1436,6 +1502,7 @@ function renderApp() {
       ${state.inviteModalId ? renderInviteModal() : ""}
       ${state.reminderModalClientId ? renderReminderModal() : ""}
       ${state.removalDialog ? renderRemovalModal() : ""}
+      ${state.colorPicker ? renderColorPickerModal() : ""}
       ${state.toast ? renderToast() : ""}
     </div>
   `;
@@ -2830,6 +2897,107 @@ function renderRemovalModal() {
   `;
 }
 
+function renderColorPickerModal() {
+  const picker = state.colorPicker;
+  if (!picker) return "";
+  const color = hsvToHex(picker.hue, picker.saturation, picker.brightness);
+  const quickColors = ["#78A880", "#7FAEA3", "#6FA6B3", "#93A9C8", "#B7A7C9", "#D4A5A5", "#D2B878", "#87908C"];
+  return `
+    <div class="modal" data-color-picker-backdrop>
+      <section class="modal-card stack color-picker-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(picker.label)} auswählen">
+        <div class="toolbar">
+          <div>
+            <span class="section-kicker">Branding</span>
+            <h2>${escapeHtml(picker.label)} auswählen</h2>
+          </div>
+          <button class="icon-btn" type="button" data-action="close-color-picker" aria-label="Schließen">×</button>
+        </div>
+        <div class="color-picker-preview" data-color-picker-preview style="background:${color}">
+          <span>${escapeHtml(picker.label)}</span>
+          <strong data-color-picker-code>${color}</strong>
+        </div>
+        <div class="color-picker-controls">
+          <label>
+            <span>Farbton</span>
+            <input type="range" min="0" max="359" value="${picker.hue}" data-color-picker-hue />
+          </label>
+          <label>
+            <span>Sättigung</span>
+            <input type="range" min="0" max="100" value="${picker.saturation}" data-color-picker-saturation />
+          </label>
+          <label>
+            <span>Helligkeit</span>
+            <input type="range" min="15" max="100" value="${picker.brightness}" data-color-picker-brightness />
+          </label>
+        </div>
+        <div class="color-quick-picks" aria-label="Schnellfarben">
+          ${quickColors.map((quickColor) => `
+            <button type="button" data-color-quick-pick="${quickColor}" title="${quickColor}" style="background:${quickColor}"></button>
+          `).join("")}
+        </div>
+        <label class="field">
+          <span>Hex-Code</span>
+          <input data-color-picker-hex value="${color}" maxlength="7" inputmode="text" autocomplete="off" />
+        </label>
+        <div class="modal-actions">
+          <button class="btn" type="button" data-action="close-color-picker">Abbrechen</button>
+          <button class="btn primary" type="button" data-apply-color-picker>Farbe übernehmen</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function openColorPicker(name, label) {
+  const field = document.querySelector(`[data-brand-color-field="${name}"]`);
+  const value = field?.querySelector("[data-brand-color-value]")?.value || "#7FAEA3";
+  state.colorPicker = { name, label, ...hexToHsv(value) };
+  document.querySelector(".app-shell")?.insertAdjacentHTML("beforeend", renderColorPickerModal());
+}
+
+function closeColorPicker() {
+  state.colorPicker = null;
+  document.querySelector("[data-color-picker-backdrop]")?.remove();
+}
+
+function refreshColorPicker() {
+  if (!state.colorPicker) return;
+  const color = hsvToHex(
+    state.colorPicker.hue,
+    state.colorPicker.saturation,
+    state.colorPicker.brightness,
+  );
+  const preview = document.querySelector("[data-color-picker-preview]");
+  const code = document.querySelector("[data-color-picker-code]");
+  const hex = document.querySelector("[data-color-picker-hex]");
+  const hue = document.querySelector("[data-color-picker-hue]");
+  const saturation = document.querySelector("[data-color-picker-saturation]");
+  const brightness = document.querySelector("[data-color-picker-brightness]");
+  if (preview) preview.style.background = color;
+  if (code) code.textContent = color;
+  if (hex && document.activeElement !== hex) hex.value = color;
+  if (hue && document.activeElement !== hue) hue.value = state.colorPicker.hue;
+  if (saturation && document.activeElement !== saturation) saturation.value = state.colorPicker.saturation;
+  if (brightness && document.activeElement !== brightness) brightness.value = state.colorPicker.brightness;
+}
+
+function applyColorPicker() {
+  if (!state.colorPicker) return;
+  const color = hsvToHex(
+    state.colorPicker.hue,
+    state.colorPicker.saturation,
+    state.colorPicker.brightness,
+  );
+  const field = document.querySelector(`[data-brand-color-field="${state.colorPicker.name}"]`);
+  const value = field?.querySelector("[data-brand-color-value]");
+  const swatch = field?.querySelector("[data-brand-color-swatch]");
+  const code = field?.querySelector("[data-brand-color-code]");
+  if (value) value.value = color;
+  if (swatch) swatch.style.background = color;
+  if (code) code.textContent = color;
+  closeColorPicker();
+}
+
 function deliveryButton(provider, inviteId, title, description) {
   return `
     <button class="delivery-card" data-webmail="${provider}" data-invite-id="${inviteId}">
@@ -2917,14 +3085,8 @@ function renderSettings() {
               </label>`
             : ""
         }
-        <label class="field">
-          <span>Primärfarbe</span>
-          <input name="primary_color" type="color" value="${escapeHtml(brand.primary_color)}" />
-        </label>
-        <label class="field">
-          <span>Sekundärfarbe</span>
-          <input name="secondary_color" type="color" value="${escapeHtml(brand.secondary_color)}" />
-        </label>
+        ${renderBrandColorField("primary_color", "Primärfarbe", brand.primary_color)}
+        ${renderBrandColorField("secondary_color", "Sekundärfarbe", brand.secondary_color)}
         <button class="btn primary" data-submit-button data-default-label="Speichern">Speichern</button>
         <p class="submit-status" data-submit-status hidden></p>
         <p class="form-submit-error" data-submit-error hidden></p>
@@ -5129,6 +5291,23 @@ app.addEventListener("keydown", (event) => {
   syncRichEditor(editor);
 });
 
+app.addEventListener("input", (event) => {
+  if (!state.colorPicker) return;
+  const hue = event.target.closest("[data-color-picker-hue]");
+  const saturation = event.target.closest("[data-color-picker-saturation]");
+  const brightness = event.target.closest("[data-color-picker-brightness]");
+  const hex = event.target.closest("[data-color-picker-hex]");
+
+  if (hue) state.colorPicker.hue = Number(hue.value);
+  if (saturation) state.colorPicker.saturation = Number(saturation.value);
+  if (brightness) state.colorPicker.brightness = Number(brightness.value);
+  if (hex) {
+    const normalized = normalizeHexColor(hex.value, "");
+    if (normalized) Object.assign(state.colorPicker, hexToHsv(normalized));
+  }
+  if (hue || saturation || brightness || hex) refreshColorPicker();
+});
+
 app.addEventListener("change", async (event) => {
   const blockSelect = event.target.closest("[data-rich-block]");
   if (blockSelect) {
@@ -5260,6 +5439,11 @@ app.addEventListener("click", async (event) => {
     return;
   }
 
+  if (event.target.hasAttribute("data-color-picker-backdrop")) {
+    closeColorPicker();
+    return;
+  }
+
   if (!event.target.closest(".client-picker") && state.clientPickerOpen) {
     state.clientPickerOpen = false;
     refreshClientPicker({ focus: false });
@@ -5277,6 +5461,27 @@ app.addEventListener("click", async (event) => {
 
   if (target.dataset.richCommand) {
     applyRichCommand(target, target.dataset.richCommand);
+    return;
+  }
+
+  if (target.dataset.openBrandColor) {
+    openColorPicker(target.dataset.openBrandColor, target.dataset.colorLabel || "Farbe");
+    return;
+  }
+
+  if (target.dataset.colorQuickPick) {
+    Object.assign(state.colorPicker, hexToHsv(target.dataset.colorQuickPick));
+    refreshColorPicker();
+    return;
+  }
+
+  if (target.hasAttribute("data-apply-color-picker")) {
+    applyColorPicker();
+    return;
+  }
+
+  if (target.dataset.action === "close-color-picker") {
+    closeColorPicker();
     return;
   }
 
